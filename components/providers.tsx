@@ -88,7 +88,7 @@ function Inner({ children }: { children: ReactNode }) {
     defaultMinutes: 20,
     negativeMarking: 0,
     showExplanation: true,
-    shuffleOptions: false,
+    shuffleOptions: true,
     name: "",
     apiUrl: "",
     googleClientId: "",
@@ -200,7 +200,7 @@ export function Providers({ children }: { children: ReactNode }) {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <TooltipProvider>
         <Inner>{children}</Inner>
-        <Toaster richColors position="top-center" />
+        <Toaster richColors position="bottom-left" />
       </TooltipProvider>
     </ThemeProvider>
   );

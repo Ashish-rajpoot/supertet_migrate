@@ -12,16 +12,11 @@ import { ArrowRight, Layers, PlayCircle, TrendingUp, Upload } from "lucide-react
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, PageShell } from "@/components/misc";
-import { meta, getAllWithServer } from "@/lib/data/normalize";
+import { metaFrom, getAllWithServer, type BankMeta } from "@/lib/data/normalize";
 import { summary } from "@/lib/data/analytics";
 import { getAttempts } from "@/lib/client/store";
 import { canAddQuestions } from "@/lib/client/auth-client";
 import { useAuth } from "@/components/providers";
-
-interface BankMeta {
-  total: number;
-  subjects: { subject: string; count: number; topics: string[] }[];
-}
 
 export default function HomePage() {
   const { signedIn, mayEdit, ready } = useAuth();
@@ -32,9 +27,11 @@ export default function HomePage() {
     let cancelled = false;
     (async () => {
       try {
-        await getAllWithServer();
+        // Count the whole bank - seed + this device + the shared server -
+        // so the number here matches what a test would actually draw from.
+        const all = await getAllWithServer();
         if (cancelled) return;
-        setBank(await meta());
+        setBank(metaFrom(all));
       } catch (e) {
         if (!cancelled) {
           toast.error(e instanceof Error ? e.message : "Question bank failed to load");

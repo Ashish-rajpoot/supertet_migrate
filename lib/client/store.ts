@@ -127,14 +127,29 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultMinutes: 20,
   negativeMarking: 0,
   showExplanation: true,
-  shuffleOptions: false,
+  shuffleOptions: true,
   name: "",
   apiUrl: "",
   googleClientId: "",
 };
 
+/**
+ * Bump when a DEFAULT_SETTINGS value changes, so installs that already have
+ * stored settings pick up the new default once instead of being stuck on the
+ * old value. v2 = shuffleOptions became true by default.
+ */
+const SETTINGS_VERSION = 2;
+const SETTINGS_V_KEY = "stp.settingsV";
+
 export function getSettings(): Settings {
-  return { ...DEFAULT_SETTINGS, ...read<Partial<Settings>>(K.settings, {}) };
+  const stored = read<Partial<Settings>>(K.settings, {});
+  const version = read<number>(SETTINGS_V_KEY, 0);
+  if (version < SETTINGS_VERSION) {
+    write(SETTINGS_V_KEY, SETTINGS_VERSION);
+    // Keep everything the user chose; only re-apply the changed default.
+    return { ...DEFAULT_SETTINGS, ...stored, shuffleOptions: DEFAULT_SETTINGS.shuffleOptions };
+  }
+  return { ...DEFAULT_SETTINGS, ...stored };
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {

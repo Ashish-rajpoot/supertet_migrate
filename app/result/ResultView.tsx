@@ -119,7 +119,15 @@ function ReviewCard({ d, n }: { d: AttemptDetail; n: number }) {
               index={k}
               hi={d.options.hi[k] || d.options.en[k] || ""}
               en={d.options.en[k] || ""}
-              tone={k === d.answerIndex ? "correct" : "default"}
+              // Green for the right answer, red for the option the student
+              // actually chose when it was wrong. A correct pick stays green.
+              tone={
+                k === d.answerIndex
+                  ? "correct"
+                  : d.chosenIndex != null && k === d.chosenIndex
+                    ? "wrong"
+                    : "default"
+              }
             />
           ))}
         </div>

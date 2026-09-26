@@ -23,7 +23,11 @@ import { Switch } from "@/components/ui/switch";
 import { BiText, LETTERS, OptionRow } from "@/components/question-view";
 import { DifficultyBadge, EmptyState, PageShell, SubjectBadge } from "@/components/misc";
 import { getAllWithServer, LETTERS as DATA_LETTERS } from "@/lib/data/normalize";
-import { addAttempt, getSettings } from "@/lib/client/store";
+import {
+  addAttempt,
+  getSettings,
+  saveSettings as persistSettings,
+} from "@/lib/client/store";
 import { syncAttempt } from "@/lib/client/sync";
 import { fmtTime, pick, shuffle, uid } from "@/lib/client/util";
 import { canAddQuestions } from "@/lib/client/auth-client";
@@ -109,8 +113,13 @@ function TestInner() {
   const [mode, setMode] = useState<"test" | "practice">("test");
   const [negative, setNegative] = useState(false);
   const [showExpl, setShowExpl] = useState(true);
-  const [shuffleOptions, setShuffleOptions] = useState(false);
+  const [shuffleOptions, setShuffleOptionsState] = useState(true);
   const [label, setLabel] = useState("");
+  // Remember the choice: the switch used to reset on every page load.
+  const setShuffleOptions = useCallback((v: boolean) => {
+    setShuffleOptionsState(v);
+    persistSettings({ shuffleOptions: v });
+  }, []);
   useEffect(() => {
     const s = getSettings();
     setCount(s.defaultCount || 20);
@@ -149,7 +158,7 @@ function TestInner() {
                 label: "Weak topics revision",
                 negative: false,
                 showExpl: true,
-                shufO: false,
+                shufO: true,
               });
             }
           }

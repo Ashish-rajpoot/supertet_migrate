@@ -305,9 +305,16 @@ export async function getAllWithServer(): Promise<Question[]> {
   return mergeQuestions(local, extra, getHidden());
 }
 
-/** Subject list with counts and topics. */
-export async function meta() {
-  const all = await getAll();
+export interface BankMeta {
+  total: number;
+  subjects: { subject: string; count: number; topics: string[] }[];
+}
+
+/**
+ * Subject list with counts and topics, for an explicit question list.
+ * Pure, so a caller can pass the merged bank (seed + device + server).
+ */
+export function metaFrom(all: Question[]): BankMeta {
   const bySubject = new Map<string, { subject: string; count: number; topics: Set<string> }>();
   for (const q of all) {
     if (!bySubject.has(q.subject)) {
@@ -323,6 +330,11 @@ export async function meta() {
       .map((s) => ({ subject: s.subject, count: s.count, topics: Array.from(s.topics).sort() }))
       .sort((a, b) => a.subject.localeCompare(b.subject)),
   };
+}
+
+/** Subject list for the device bank only (no server questions). */
+export async function meta(): Promise<BankMeta> {
+  return metaFrom(await getAll());
 }
 
 export function filterQuestions(
