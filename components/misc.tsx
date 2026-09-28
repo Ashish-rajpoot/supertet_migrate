@@ -9,7 +9,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "cn";
-import { Inbox, MonitorSmartphone, Moon, Sun } from "lucide-react";
+import { Accessibility, Inbox, MonitorSmartphone, Moon, Sun } from "lucide-react";
+import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,31 +22,33 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useLang, useSettings, type ThemeMode } from "./providers";
+import { T, useT, type StringKey } from "@/lib/i18n/t";
 
 /* ---------------- language + theme (footer) ---------------- */
 const THEME_ORDER: ThemeMode[] = ["auto", "light", "dark"];
 const THEME_ICON = { auto: MonitorSmartphone, light: Sun, dark: Moon } as const;
-const THEME_LABEL: Record<ThemeMode, string> = {
-  auto: "Auto (follow device)",
-  light: "Light",
-  dark: "Dark",
+const THEME_LABEL: Record<ThemeMode, StringKey> = {
+  auto: "theme.auto",
+  light: "theme.light",
+  dark: "theme.dark",
 };
 
 /** Cycles auto -> light -> dark. */
 export function ThemeToggle({ className }: { className?: string }) {
   const { themeMode, setThemeMode } = useSettings();
+  const { t } = useT();
   const Icon = THEME_ICON[themeMode];
   return (
     <Button
       variant="outline"
       size="sm"
       className={className}
-      title={"Theme: " + THEME_LABEL[themeMode] + " (click to change)"}
-      aria-label={"Theme: " + THEME_LABEL[themeMode]}
+      title={t("theme.current", { mode: t(THEME_LABEL[themeMode]) })}
+      aria-label={t("theme.aria", { mode: t(THEME_LABEL[themeMode]) })}
       onClick={() => setThemeMode(THEME_ORDER[(THEME_ORDER.indexOf(themeMode) + 1) % 3])}
     >
       <Icon />
-      {THEME_LABEL[themeMode]}
+      <T k={THEME_LABEL[themeMode]} />
     </Button>
   );
 }
@@ -53,12 +56,13 @@ export function ThemeToggle({ className }: { className?: string }) {
 /** Hindi / English / both, for every bilingual field. */
 export function LangSelect({ compact = false }: { compact?: boolean }) {
   const { lang, setLang } = useLang();
+  const { t } = useT();
   return (
     <Select value={lang} onValueChange={(v) => setLang(v as "hi" | "en" | "both")}>
       <SelectTrigger
         size="sm"
         className={cn("gap-2", compact ? "w-full" : "w-[168px]")}
-        aria-label="Language"
+        aria-label={t("lang.label")}
       >
         <SelectValue />
       </SelectTrigger>
@@ -188,29 +192,50 @@ export function NameLabel({
 }
 
 export function SiteFooter() {
+  const { t } = useT();
+  const { dockHidden, setDockHidden } = useSettings();
   return (
     <footer className="border-t py-6">
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-4 px-4 text-center">
-        <p className="text-sm text-muted-foreground">
-          SuperTET Prep · bilingual practice tests · works offline
-        </p>
+        <p className="text-sm text-muted-foreground">{t("footer.tagline")}</p>
 
         {/* Language + theme preferences */}
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <span className="text-xs text-muted-foreground">Language</span>
+          <span className="text-xs text-muted-foreground">{t("footer.language")}</span>
           <LangSelect />
           <ThemeToggle />
+          {/* Only when the floating button is hidden: this is how it returns,
+              so dismissing it is never a dead end. */}
+          {dockHidden ? (
+            <Button
+              variant="link"
+              size="sm"
+              onClick={() => {
+                setDockHidden(false);
+                toast.success(t("a11y.shown"));
+              }}
+            >
+              <Accessibility />
+              <T k="a11y.show" />
+            </Button>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button variant="link" size="sm" asChild>
-            <Link href="/questions">Add questions</Link>
+            <Link href="/questions">
+              <T k="footer.addQuestions" />
+            </Link>
           </Button>
           <Button variant="link" size="sm" asChild>
-            <a href="/templates/questions-template.xlsx">Excel template</a>
+            <a href="/templates/questions-template.xlsx">
+              <T k="footer.excelTemplate" />
+            </a>
           </Button>
           <Button variant="link" size="sm" asChild>
-            <a href="/data/subjects.json">Syllabus JSON</a>
+            <a href="/data/subjects.json">
+              <T k="footer.syllabusJson" />
+            </a>
           </Button>
         </div>
       </div>

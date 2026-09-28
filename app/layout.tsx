@@ -4,6 +4,8 @@ import "./globals.css";
 import { Providers } from "@/components/providers";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/misc";
+import { AccessibilityDock } from "@/components/a11y-widget";
+import { BackToTop } from "@/components/back-to-top";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,6 +53,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <SiteHeader />
           <main className="flex-1">{children}</main>
           <SiteFooter />
+          {/* Floating helpers, stacked in one column: back-to-top shows up
+              while scrolling, the accessibility dock stays until dismissed.
+              z-40 keeps both under dialogs and the toaster (z-50), and the
+              data attribute lets the print stylesheet drop the whole column. */}
+          <div
+            data-floating-tools
+            className="fixed right-4 bottom-4 z-40 flex flex-col items-end gap-2"
+          >
+            <BackToTop />
+            <AccessibilityDock />
+          </div>
         </Providers>
       </body>
     </html>

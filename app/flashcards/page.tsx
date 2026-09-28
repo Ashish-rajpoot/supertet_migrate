@@ -27,6 +27,7 @@ import { EmptyState, PageShell, SectionCard } from "@/components/misc";
 import { getAllWithServer } from "@/lib/data/normalize";
 import { getCards, resetCards, setCard } from "@/lib/client/store";
 import { pick, shuffle } from "@/lib/client/util";
+import { useT } from "@/lib/i18n/t";
 import type { Question } from "@/lib/types";
 
 /** Session key for "revise my mistakes" decks (result page -> here). */
@@ -50,6 +51,7 @@ function boxCounts(): number[] {
 
 function FlashcardsInner() {
   const params = useSearchParams();
+  const { t } = useT();
   const weakParam = params.get("weak") === "1";
   const subjectParam = params.get("subject") || "";
 
@@ -88,9 +90,7 @@ function FlashcardsInner() {
     if (weakOnly) pool = pool.filter((q) => !cards[q.id] || cards[q.id].box <= 2);
     if (!pool.length) {
       toast.error(
-        weakOnly
-          ? "No weak cards in this deck - everything is box 3 or higher."
-          : "No cards in this deck."
+        weakOnly ? t("fc.toast.noWeak") : t("fc.toast.noCards")
       );
       return;
     }
@@ -100,7 +100,7 @@ function FlashcardsInner() {
     setDeck(pick(pool.slice(0, Math.max(n * 3, n)), n));
     setIdx(0);
     setFlipped(false);
-  }, [bank, subject, count, weakOnly]);
+  }, [bank, subject, count, weakOnly, t]);
 
   // Auto-start a weak deck when arriving from a result page (?weak=1).
   useEffect(() => {
@@ -123,7 +123,7 @@ function FlashcardsInner() {
   }, [bank, deck, weakParam]);
   if (!bank) {
     return (
-      <PageShell title="Flashcards" description="Flip cards for quick revision.">
+      <PageShell title={t("fc.title")} description={t("fc.desc")}>
         <Skeleton className="h-64 w-full" />
       </PageShell>
     );
@@ -131,13 +131,13 @@ function FlashcardsInner() {
 
   if (!bank.length) {
     return (
-      <PageShell title="Flashcards" description="Flip cards for quick revision.">
+      <PageShell title={t("fc.title")} description={t("fc.desc")}>
         <EmptyState
-          title="No questions yet"
-          hint="Add a question bank from the Questions page first."
+          title={t("fc.empty.title")}
+          hint={t("fc.empty.hint")}
           action={
             <Button asChild>
-              <Link href="/questions">Add questions</Link>
+              <Link href="/questions">{t("footer.addQuestions")}</Link>
             </Button>
           }
         />
@@ -147,21 +147,23 @@ function FlashcardsInner() {
 
   if (!deck) {
     return (
-      <PageShell title="Flashcards" description="Flip cards for quick revision.">
+      <PageShell title={t("fc.title")} description={t("fc.desc")}>
         <div className="grid gap-4 md:grid-cols-2">
-          <SectionCard title="Choose a deck">
+          <SectionCard title={t("fc.deck")}>
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label>Subject</Label>
+                <Label>{t("common.subjects")}</Label>
                 <Select
                   value={subject || "__all"}
                   onValueChange={(v) => setSubject(v === "__all" ? "" : v)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="All subjects" />
+                    <SelectValue placeholder={t("fc.allSubjects")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__all">All subjects ({bank.length})</SelectItem>
+                    <SelectItem value="__all">
+                      {t("fc.allSubjectsCount", { n: bank.length })}
+                    </SelectItem>
                     {subjects.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s} ({bank.filter((q) => q.subject === s).length})
@@ -171,7 +173,7 @@ function FlashcardsInner() {
                 </Select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="fc-count">Cards in this session</Label>
+                <Label htmlFor="fc-count">{t("fc.sessionCount")}</Label>
                 <Input
                   id="fc-count"
                   type="number"
@@ -183,26 +185,26 @@ function FlashcardsInner() {
               </div>
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <Checkbox checked={weakOnly} onCheckedChange={(v) => setWeakOnly(v === true)} />
-                Only cards I got wrong before
+                {t("fc.weakOnly")}
               </label>
-              <Button onClick={start}>Start practising</Button>
+              <Button onClick={start}>{t("fc.start")}</Button>
             </div>
           </SectionCard>
           <SectionCard
-            title="Memory boxes"
-            description="Cards you mark “Review again” come back sooner. Cards move up a box each time you get them right."
+            title={t("fc.boxes")}
+            description={t("fc.boxesDesc")}
             actions={
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => {
-                  if (!confirm("Reset flashcard progress?")) return;
+                  if (!confirm(t("fc.resetConfirm"))) return;
                   resetCards();
                   setBoxes(boxCounts());
-                  toast.success("Flashcard progress reset");
+                  toast.success(t("fc.toast.reset"));
                 }}
               >
-                <RotateCcw /> Reset
+                <RotateCcw /> {t("fc.reset")}
               </Button>
             }
           >
@@ -248,6 +250,7 @@ function Drill({
   onRated: () => void;
 }) {
   const [touchX, setTouchX] = useState<number | null>(null);
+  const { t } = useT();
 
   const rate = useCallback(
     (knew: boolean) => {
@@ -258,14 +261,14 @@ function Drill({
       setCard(q.id, knew ? box + 1 : 1);
       onRated();
       if (idx + 1 >= deck.length) {
-        toast.success("Session complete - well done!");
+        toast.success(t("fc.toast.done"));
         onExit();
       } else {
         setIdx(idx + 1);
         setFlipped(false);
       }
     },
-    [deck, idx, setIdx, setFlipped, onExit, onRated]
+    [deck, idx, setIdx, setFlipped, onExit, onRated, t]
   );
 
   useEffect(() => {
@@ -288,11 +291,11 @@ function Drill({
 
   return (
     <PageShell
-      title="Flashcards"
+      title={t("fc.title")}
       description={`${idx + 1} / ${deck.length}`}
       actions={
         <Button variant="ghost" size="sm" onClick={onExit}>
-          End session
+          {t("fc.endSession")}
         </Button>
       }
     >
@@ -317,15 +320,15 @@ function Drill({
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button variant="outline" onClick={() => setFlipped((f: boolean) => !f)}>
-          {flipped ? "Hide answer" : "Show answer"}
+          {flipped ? t("fc.hideAnswer") : t("fc.showAnswer")}
         </Button>
         <Button variant="destructive" onClick={() => rate(false)}>
-          Review again
+          {t("fc.reviewAgain")}
         </Button>
-        <Button onClick={() => rate(true)}>I knew it</Button>
+        <Button onClick={() => rate(true)}>{t("practice.knew")}</Button>
       </div>
       <p className="text-center text-xs text-muted-foreground">
-        Swipe right (or →) if you knew it, left (or ←) to revise again.
+        {t("fc.swipeHint")}
       </p>
     </PageShell>
   );
@@ -351,6 +354,7 @@ function FlashCard({
   onFlip: () => void;
   optCount: number;
 }) {
+  const { t } = useT();
   return (
     <FlashCardShell onFlip={onFlip}>
       <div className="flex items-center gap-2">
@@ -358,14 +362,14 @@ function FlashCard({
           {q.subject} · {q.topic}
         </Badge>
         <Badge variant="secondary" className="ml-auto">
-          box {box}
+          {t("fc.boxN", { n: box })}
         </Badge>
       </div>
       {!flipped ? (
         <>
           <FlashStem q={q} large />
           <p className="mt-auto text-center text-sm text-muted-foreground">
-            Tap the card (or press Space) to see the answer
+            {t("fc.tapHint")}
           </p>
         </>
       ) : (
@@ -500,10 +504,11 @@ function BoxBars({ boxes }: { boxes: number[] }) {
 }
 
 export default function FlashcardsPage() {
+  const { t } = useT();
   return (
     <Suspense
       fallback={
-        <PageShell title="Flashcards">
+        <PageShell title={t("fc.title")}>
           <Skeleton className="h-64 w-full" />
         </PageShell>
       }

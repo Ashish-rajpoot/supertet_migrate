@@ -25,6 +25,7 @@ import {
 import { useAuth } from "./providers";
 import { AuthDialog } from "./auth-dialog";
 import { roleLabel, logout } from "@/lib/client/auth-client";
+import { T, useT } from "@/lib/i18n/t";
 
 function identity(user: { email?: string; phone?: string; userId?: string } | null): string {
   if (!user) return "";
@@ -33,13 +34,14 @@ function identity(user: { email?: string; phone?: string; userId?: string } | nu
 
 export function UserChip() {
   const { user } = useAuth();
+  const { t } = useT();
   const router = useRouter();
   const [loginOpen, setLoginOpen] = useState(false);
   if (!user) {
     return (
       <>
         <Button size="sm" onClick={() => setLoginOpen(true)}>
-          Log in
+          <T k="auth.logIn" />
         </Button>
         <AuthDialog open={loginOpen} onOpenChange={setLoginOpen} initialTab="login" />
       </>
@@ -53,7 +55,9 @@ export function UserChip() {
             {user.avatar ? <AvatarImage src={user.avatar} alt={user.name} /> : null}
             <AvatarFallback>{(user.name || "S").slice(0, 1).toUpperCase()}</AvatarFallback>
           </Avatar>
-          <span className="max-w-24 truncate text-sm font-medium">{user.name || "Student"}</span>
+          <span className="max-w-24 truncate text-sm font-medium">
+            {user.name || t("auth.student")}
+          </span>
           <Badge variant="secondary" className="hidden sm:inline-flex">
             {roleLabel(user)}
           </Badge>
@@ -62,12 +66,12 @@ export function UserChip() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuLabel className="font-normal">
-          <div className="truncate font-semibold">{user.name || "Student"}</div>
+          <div className="truncate font-semibold">{user.name || t("auth.student")}</div>
           <div className="truncate text-xs text-muted-foreground">{identity(user)}</div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => router.push("/profile")}>
-          <UserRound /> My profile
+          <UserRound /> <T k="auth.myProfile" />
         </DropdownMenuItem>
         <DropdownMenuItem
           variant="destructive"
@@ -76,7 +80,7 @@ export function UserChip() {
             router.push("/");
           }}
         >
-          <LogOut /> Log out
+          <LogOut /> <T k="auth.logOut" />
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -94,6 +98,7 @@ import { GROUP_TITLES, visibleNav } from "@/lib/nav";
 
 function DrawerBody({ onNavigate }: { onNavigate: () => void }) {
   const { user, signedIn, isAdmin, mayEdit } = useAuth();
+  const { t } = useT();
   const router = useRouter();
   const [loginOpen, setLoginOpen] = useState(false);
   const links = visibleNav({ signedIn, mayEdit, isAdmin });
@@ -107,7 +112,7 @@ function DrawerBody({ onNavigate }: { onNavigate: () => void }) {
               <AvatarFallback>{(user.name || "S").slice(0, 1).toUpperCase()}</AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <div className="truncate font-semibold">{user.name || "Student"}</div>
+              <div className="truncate font-semibold">{user.name || t("auth.student")}</div>
               <div className="truncate text-xs text-muted-foreground">{identity(user)}</div>
             </div>
             <Badge variant="secondary" className="ml-auto">
@@ -124,7 +129,7 @@ function DrawerBody({ onNavigate }: { onNavigate: () => void }) {
                 router.push("/profile");
               }}
             >
-              My profile
+              <T k="auth.myProfile" />
             </Button>
             <Button
               size="sm"
@@ -136,18 +141,15 @@ function DrawerBody({ onNavigate }: { onNavigate: () => void }) {
                 router.push("/");
               }}
             >
-              Log out
+              <T k="auth.logOut" />
             </Button>
           </div>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          <p className="text-sm text-muted-foreground">
-            Sign in to save your results, track progress and help maintain the shared question
-            bank.
-          </p>
+          <p className="text-sm text-muted-foreground">{t("auth.guestBody")}</p>
           <Button className="w-full" onClick={() => setLoginOpen(true)}>
-            Log in / Sign up
+            <T k="auth.logInSignUp" />
           </Button>
           <AuthDialog open={loginOpen} onOpenChange={setLoginOpen} initialTab="login" />
         </div>
@@ -158,7 +160,7 @@ function DrawerBody({ onNavigate }: { onNavigate: () => void }) {
         return (
           <div key={g} className="flex flex-col gap-1">
             <div className="px-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-              {GROUP_TITLES[g]}
+              <T k={GROUP_TITLES[g]} />
             </div>
             {items.map((l) => (
               <Link
@@ -167,8 +169,10 @@ function DrawerBody({ onNavigate }: { onNavigate: () => void }) {
                 onClick={onNavigate}
                 className="rounded-lg px-2 py-2 transition-colors hover:bg-muted"
               >
-                <div className="text-sm font-medium">{l.label}</div>
-                <div className="text-xs text-muted-foreground">{l.hint}</div>
+                <div className="text-sm font-medium">
+                  <T k={l.label} />
+                </div>
+                <div className="text-xs text-muted-foreground">{t(l.hint)}</div>
               </Link>
             ))}
           </div>
@@ -181,6 +185,7 @@ function DrawerBody({ onNavigate }: { onNavigate: () => void }) {
 export function SiteHeader() {
   const pathname = usePathname();
   const { signedIn, isAdmin, mayEdit } = useAuth();
+  const { t } = useT();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const links = visibleNav({ signedIn, mayEdit, isAdmin });
   const isActive = (href: string) =>
@@ -192,7 +197,7 @@ export function SiteHeader() {
           <GraduationCap className="size-6 text-primary" />
           <span>SuperTET Prep</span>
         </Link>
-        <nav className="ml-2 hidden items-center gap-1 lg:flex" aria-label="Primary">
+        <nav className="ml-2 hidden items-center gap-1 lg:flex" aria-label={t("auth.primaryNav")}>
           {links.map((l) => (
             <Link
               key={l.href}
@@ -203,7 +208,7 @@ export function SiteHeader() {
                 isActive(l.href) && "bg-muted text-foreground"
               )}
             >
-              {l.label}
+              <T k={l.label} />
             </Link>
           ))}
         </nav>
@@ -213,7 +218,7 @@ export function SiteHeader() {
         <div className="ml-auto flex items-center gap-1 sm:hidden">
           <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Open menu">
+              <Button variant="ghost" size="icon" aria-label={t("auth.openMenu")}>
                 <Menu />
               </Button>
             </SheetTrigger>
@@ -222,7 +227,7 @@ export function SiteHeader() {
                 <SheetTitle className="flex items-center gap-2">
                   <GraduationCap className="size-5 text-primary" /> SuperTET Prep
                 </SheetTitle>
-                <SheetDescription>Bilingual SuperTET practice tests</SheetDescription>
+                <SheetDescription>{t("auth.drawerDesc")}</SheetDescription>
               </SheetHeader>
               <DrawerBody onNavigate={() => setDrawerOpen(false)} />
             </SheetContent>

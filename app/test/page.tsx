@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { BiText, LETTERS, OptionRow } from "@/components/question-view";
 import { DifficultyBadge, EmptyState, PageShell, SubjectBadge } from "@/components/misc";
+import { useT, type StringKey } from "@/lib/i18n/t";
 import { getAllWithServer, LETTERS as DATA_LETTERS } from "@/lib/data/normalize";
 import {
   addAttempt,
@@ -100,6 +101,7 @@ async function loadSyllabusSubjectNames(): Promise<string[]> {
 function TestInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const { t } = useT();
   const { settings } = useSettings();
   const [bank, setBank] = useState<Question[] | null>(null);
   const [syllabus, setSyllabus] = useState<string[]>([]);
@@ -259,7 +261,7 @@ function TestInner() {
         (!difficulty.length || difficulty.includes(q.difficulty))
     );
     if (!pool.length) {
-      toast.error("No questions match this selection.");
+      toast.error(t("test.toast.noMatch"));
       return;
     }
     begin({
@@ -273,7 +275,11 @@ function TestInner() {
       showExpl,
       shufO: shuffleOptions,
     });
-    toast.success(pool.length < count ? `Only ${pool.length} questions available - using all.` : "Test started");
+    toast.success(
+      pool.length < count
+        ? t("test.toast.onlySome", { n: pool.length })
+        : t("test.toast.started")
+    );
   }
   const finish = useCallback(
     (r: RunState) => {
@@ -375,7 +381,7 @@ function TestInner() {
 
   if (!bank) {
     return (
-      <PageShell title="Test" description="Timed test with instant scoring.">
+      <PageShell title={t("test.title")} description={t("test.desc")}>
         <Skeleton className="h-80 w-full" />
       </PageShell>
     );
@@ -383,18 +389,18 @@ function TestInner() {
 
   if (!bank.length) {
     return (
-      <PageShell title="Test" description="Timed test with instant scoring.">
+      <PageShell title={t("test.title")} description={t("test.desc")}>
         <EmptyState
-          title="No questions yet"
+          title={t("test.empty.title")}
           hint={
             canAddQuestions()
-              ? "Load a question bank from the Questions page first."
-              : "The admin has not added a question bank yet."
+              ? t("home.empty.edit")
+              : t("home.empty.admin")
           }
           action={
             canAddQuestions() ? (
               <Button asChild>
-                <Link href="/questions">Add questions</Link>
+                <Link href="/questions">{t("footer.addQuestions")}</Link>
               </Button>
             ) : undefined
           }
@@ -517,18 +523,19 @@ function ChipRow({
   );
 }
 function SetupForm(p: SetupProps) {
+  const { t } = useT();
   return (
-    <PageShell title="Test" description="Timed test with instant scoring.">
+    <PageShell title={t("test.title")} description={t("test.desc")}>
       <Card>
         <CardContent className="flex flex-col gap-5 pt-6">
           <ChipRow
-            label="Subjects"
+            label={t("common.subjects")}
             options={p.allSubjects}
             selected={p.subjects}
             onToggle={p.setSubjects}
           />
           <ChipRow
-            label="Topics"
+            label={t("common.topics")}
             options={p.allTopics}
             selected={p.topics}
             onToggle={p.setTopics}
@@ -536,11 +543,12 @@ function SetupForm(p: SetupProps) {
           />
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label>Difficulty</Label>
+              <Label>{t("common.difficulty")}</Label>
               <div className="flex gap-2">
-                {["easy", "medium", "hard"].map((d) => {
+                {(["easy", "medium", "hard"] as const).map((d) => {
                   const on = p.difficulty.includes(d);
                   const n = p.difficultyCounts[d] || 0;
+                  const label = t(`test.diff.${d}` as StringKey);
                   return (
                     <button
                       key={d}
@@ -548,12 +556,12 @@ function SetupForm(p: SetupProps) {
                       disabled={n === 0}
                       title={
                         n === 0
-                          ? `No ${d} questions in the selected subjects/topics`
-                          : `${n} ${d} question(s) available`
+                          ? t("test.diff.none", { d: label })
+                          : t("test.diff.have", { d: label, n })
                       }
                       onClick={() => p.setDifficulty(toggleIn(p.difficulty, d))}
                       className={
-                        "flex-1 rounded-lg border px-3 py-1.5 text-sm capitalize transition-colors " +
+                        "flex-1 rounded-lg border px-3 py-1.5 text-sm transition-colors " +
                         (n === 0
                           ? "cursor-not-allowed border-muted text-muted-foreground/50"
                           : on
@@ -561,7 +569,7 @@ function SetupForm(p: SetupProps) {
                             : "text-muted-foreground hover:border-primary/50")
                       }
                     >
-                      {d}
+                      {label}
                       <span className="ml-1.5 text-xs opacity-70">{n}</span>
                     </button>
                   );
@@ -569,16 +577,18 @@ function SetupForm(p: SetupProps) {
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="t-label">Test name (optional)</Label>
+              <Label htmlFor="t-label">{t("test.label.name")}</Label>
               <Input
                 id="t-label"
-                placeholder="e.g. Sunday mock"
+                placeholder={t("test.label.namePh")}
                 value={p.label}
                 onChange={(e) => p.setLabel(e.target.value)}
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="t-count">Questions (max {p.bank.length})</Label>
+              <Label htmlFor="t-count">
+                {t("test.label.count", { max: p.bank.length })}
+              </Label>
               <Input
                 id="t-count"
                 type="number"
@@ -589,7 +599,7 @@ function SetupForm(p: SetupProps) {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="t-min">Minutes (0 = no timer)</Label>
+              <Label htmlFor="t-min">{t("test.label.minutes")}</Label>
               <Input
                 id="t-min"
                 type="number"
@@ -603,35 +613,38 @@ function SetupForm(p: SetupProps) {
           <div className="flex flex-col gap-3">
             <SwitchRow
               id="t-mode"
-              label="Practice mode (untimed, instant answers)"
+              label={t("test.sw.practice")}
               checked={p.mode === "practice"}
               onChange={(v) => p.setMode(v ? "practice" : "test")}
             />
             <SwitchRow
               id="t-neg"
-              label="Negative marking (−1 per wrong answer)"
+              label={t("test.sw.negative")}
               checked={p.negative}
               onChange={p.setNegative}
             />
             <SwitchRow
               id="t-expl"
-              label="Show explanations in practice mode"
+              label={t("test.sw.explain")}
               checked={p.showExpl}
               onChange={p.setShowExpl}
             />
             <SwitchRow
               id="t-shuf"
-              label="Shuffle options"
+              label={t("test.sw.shuffle")}
               checked={p.shuffleOptions}
               onChange={p.setShuffleOptions}
             />
           </div>
           <Button size="lg" onClick={p.onStart}>
-            Start {p.mode === "practice" ? "practice" : "test"}
+            {p.mode === "practice" ? t("test.startPractice") : t("test.startTest")}
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            Bank: {p.bank.length} questions · default {p.defaultCount} questions /{" "}
-            {p.defaultMinutes} min
+            {t("test.bankLine", {
+              bank: p.bank.length,
+              count: p.defaultCount,
+              min: p.defaultMinutes,
+            })}
           </p>
         </CardContent>
       </Card>
@@ -671,14 +684,19 @@ function Runner({
   const [now, setNow] = useState(() => Date.now());
   const [paused, setPaused] = useState(false);
   const [flagged, setFlagged] = useState<Set<number>>(new Set());
+  const { t } = useT();
+  // The clock effect must not re-run (and re-submit) just because the
+  // language changed, so read the translator through a ref.
+  const tRef = useRef(t);
   const finishRef = useRef(onFinish);
   useEffect(() => {
+    tRef.current = t;
     finishRef.current = onFinish;
   });
 
   /** Abandon the run: clear the saved copy and drop back to the setup form. */
   function quit() {
-    if (!confirm("Quit this test? Your answers will be lost.")) return;
+    if (!confirm(t("test.quit.confirm"))) return;
     saveRun(null);
     setRun(null);
   }
@@ -690,7 +708,7 @@ function Runner({
   useEffect(() => {
     if (!timed || paused) return;
     if (remainMs <= 0) {
-      toast.warning("Time over - submitting automatically");
+      toast.warning(tRef.current("test.toast.timeOver"));
       finishRef.current(run);
       return;
     }
@@ -739,7 +757,7 @@ function Runner({
   return (
     <PageShell
       title={run.label}
-      description={`${run.mode === "practice" ? "Practice" : "Timed test"} · Q${run.idx + 1} of ${run.questions.length}`}
+      description={`${run.mode === "practice" ? t("result.mode.practice") : t("result.mode.timed")} · ${t("test.questionOf", { a: run.idx + 1, b: run.questions.length })}`}
       actions={
         <>
           {timed ? (
@@ -752,7 +770,7 @@ function Runner({
             </Badge>
           )}
           {timed ? (
-            <Button variant="ghost" size="icon" title={paused ? "Resume" : "Pause"} onClick={togglePause}>
+            <Button variant="ghost" size="icon" title={paused ? t("common.resume") : t("common.pause")} onClick={togglePause}>
               {paused ? <Play /> : <Pause />}
             </Button>
           ) : null}
@@ -762,8 +780,8 @@ function Runner({
       {paused ? (
         <Card>
           <CardContent className="py-10 text-center">
-            <p className="font-semibold">Paused</p>
-            <p className="text-sm text-muted-foreground">Press resume to continue the timer.</p>
+            <p className="font-semibold">{t("test.paused")}</p>
+            <p className="text-sm text-muted-foreground">{t("test.pausedHint")}</p>
           </CardContent>
         </Card>
       ) : (
@@ -777,7 +795,7 @@ function Runner({
                 <DifficultyBadge value={q.difficulty} />
                 <Button variant="ghost" size="sm" className="ml-auto" onClick={toggleFlag}>
                   <Flag className={isFlagged ? "fill-amber-400 text-amber-400" : ""} />
-                  {isFlagged ? "Flagged" : "Flag"}
+                  {isFlagged ? t("test.flagged") : t("test.flag")}
                 </Button>
               </div>
               <BiText value={q.question} className="text-lg font-medium" />
@@ -816,15 +834,15 @@ function Runner({
                   disabled={run.idx === 0}
                   onClick={() => update({ idx: run.idx - 1 })}
                 >
-                  Previous
+                  {t("common.previous")}
                 </Button>
                 <span className="text-sm text-muted-foreground">
-                  {answered}/{run.questions.length} answered
+                  {t("test.answeredOf", { a: answered, b: run.questions.length })}
                 </span>
                 {run.idx + 1 < run.questions.length ? (
-                  <Button onClick={() => update({ idx: run.idx + 1 })}>Next</Button>
+                  <Button onClick={() => update({ idx: run.idx + 1 })}>{t("common.next")}</Button>
                 ) : (
-                  <Button onClick={confirmFinish}>Finish</Button>
+                  <Button onClick={confirmFinish}>{t("common.finish")}</Button>
                 )}
               </div>
             </CardContent>
@@ -832,10 +850,10 @@ function Runner({
           <Palette run={run} flagged={flagged} onJump={(i) => update({ idx: i })} />
           <div className="flex flex-wrap justify-center gap-2">
             <Button variant="outline" onClick={confirmFinish}>
-              Submit {run.mode === "practice" ? "practice" : "test"}
+              {run.mode === "practice" ? t("test.submitPractice") : t("test.submitTest")}
             </Button>
             <Button variant="ghost" onClick={quit}>
-              Quit
+              {t("test.quit")}
             </Button>
           </div>
         </>
@@ -844,6 +862,7 @@ function Runner({
   );
 }
 function PracticeFeedback({ q, chosen }: { q: Question; chosen: number }) {
+  const { t } = useT();
   const right = chosen === q.answerIndex;
   const correctText = q.options.hi[q.answerIndex] || q.options.en[q.answerIndex] || "";
   const expl = q.explanation.hi || q.explanation.en;
@@ -855,7 +874,12 @@ function PracticeFeedback({ q, chosen }: { q: Question; chosen: number }) {
       }
     >
       <strong>
-        {right ? "Correct!" : `Correct answer: ${LETTERS[q.answerIndex]}. ${correctText}`}
+        {right
+          ? t("practice.correct")
+          : t("practice.correctAnswer", {
+              l: LETTERS[q.answerIndex],
+              text: correctText,
+            })}
       </strong>
       {expl ? (
         <p className="mt-1.5">
@@ -907,10 +931,11 @@ function Palette({
 }
 
 export default function TestPage() {
+  const { t } = useT();
   return (
     <Suspense
       fallback={
-        <PageShell title="Test">
+        <PageShell title={t("test.title")}>
           <Skeleton className="h-80 w-full" />
         </PageShell>
       }

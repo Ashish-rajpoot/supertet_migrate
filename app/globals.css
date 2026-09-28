@@ -128,3 +128,33 @@
     @apply font-sans;
   }
 }
+
+/* ---------------- accessibility text size ----------------
+   The accessibility dock writes data-font on <html>. Percentages keep the
+   font size the user already chose in their browser as the base, and
+   because every Tailwind size (text, padding, gap) is rem based, the whole
+   layout scales together instead of just the glyphs. "md" is the default
+   and needs no rule. */
+html[data-font="sm"] {
+  font-size: 93.75%;
+}
+html[data-font="lg"] {
+  font-size: 112.5%;
+}
+html[data-font="xl"] {
+  font-size: 125%;
+}
+
+/* Pre-paint guard for the floating dock: the boot script sets this before
+   the first paint, so a button the user dismissed never flashes back while
+   React is still hydrating. */
+html[data-a11y="off"] [data-a11y-dock] {
+  display: none;
+}
+
+/* The floating helpers are screen chrome: keep them off printed results. */
+@media print {
+  [data-floating-tools] {
+    display: none;
+  }
+}

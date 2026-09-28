@@ -165,6 +165,13 @@ export interface Settings {
 /** Language mode for every bilingual field. */
 export type Lang = "hi" | "en" | "both";
 
+/**
+ * Accessibility text scale. Applied as a percentage on the root font
+ * size, so every rem-based Tailwind size (text, padding, gap) grows
+ * together and the user's own browser font size stays the base.
+ */
+export type FontScale = "sm" | "md" | "lg" | "xl";
+
 /** One row of the admin "all students" roster. */
 export interface StudentRow {
   userId: string;

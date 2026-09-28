@@ -18,7 +18,7 @@ import {
 import { ThemeProvider, useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { Lang, PublicUser, Settings } from "@/lib/types";
+import type { FontScale, Lang, PublicUser, Settings } from "@/lib/types";
 import {
   checkSession,
   getAuthSession,
@@ -27,6 +27,13 @@ import {
 import { getLang, setLang as persistLang } from "@/lib/client/util";
 import { getSettings, saveSettings as persistSettings } from "@/lib/client/store";
 import { flushQueue } from "@/lib/client/sync";
+import {
+  A11Y_BOOT_SCRIPT,
+  getDockHidden,
+  getFontScale,
+  setDockHidden as persistDockHidden,
+  setFontScale as persistFontScale,
+} from "@/lib/client/a11y";
 
 export type ThemeMode = "auto" | "light" | "dark";
 
@@ -68,6 +75,10 @@ interface SettingsCtx {
   saveSettings: (patch: Partial<Settings>) => void;
   themeMode: ThemeMode;
   setThemeMode: (t: ThemeMode) => void;
+  fontScale: FontScale;
+  setFontScale: (f: FontScale) => void;
+  dockHidden: boolean;
+  setDockHidden: (hidden: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsCtx>({
@@ -75,11 +86,23 @@ const SettingsContext = createContext<SettingsCtx>({
   saveSettings: () => {},
   themeMode: "auto",
   setThemeMode: () => {},
+  fontScale: "md",
+  setFontScale: () => {},
+  dockHidden: false,
+  setDockHidden: () => {},
 });
 
 export function useSettings(): SettingsCtx {
   return useContext(SettingsContext);
 }
+
+/** Drop every Cache Storage bucket (used to un-poison a dev session). */
+async function clearCaches() {
+  if (!("caches" in window)) return;
+  const keys = await caches.keys();
+  await Promise.all(keys.map((k) => caches.delete(k)));
+}
+
 function Inner({ children }: { children: ReactNode }) {
   const { setTheme } = useTheme();
 
@@ -95,6 +118,8 @@ function Inner({ children }: { children: ReactNode }) {
   }));
   const [themeMode, setThemeModeState] = useState<ThemeMode>("auto");
   const [lang, setLangState] = useState<Lang>("both");
+  const [fontScale, setFontScaleState] = useState<FontScale>("md");
+  const [dockHidden, setDockHiddenState] = useState(false);
   const [user, setUser] = useState<PublicUser | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -109,31 +134,62 @@ function Inner({ children }: { children: ReactNode }) {
     setThemeModeState(mode);
     setTheme(mode === "auto" ? "system" : mode);
     setLangState(getLang());
+    setFontScaleState(getFontScale());
+    setDockHiddenState(getDockHidden());
     setUser(getCurrentUser());
     setReady(true);
 
     // Silent session re-check, outbox flush, service worker registration.
     void checkSession().then((u) => setUser(u ?? getCurrentUser()));
     void flushQueue();
+
+    // The offline cache only makes sense for a production build. In dev the
+    // chunk URLs are reused while their contents change, so a cache-first
+    // service worker hands the App Router a JS graph and a Flight payload from
+    // two different builds - which is what makes React fail with
+    // "chunk.reason.enqueueModel is not a function". So: register in
+    // production, and in dev unregister whatever an earlier session left
+    // behind together with its caches, so a stale worker cannot keep serving
+    // dead chunks on localhost.
+    const onLoad = () => {
+      if (process.env.NODE_ENV === "production") {
+        navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("SW failed", e));
+        return;
+      }
+      void navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+        .then((gone) => (gone.some(Boolean) ? clearCaches() : undefined))
+        .catch(() => {});
+    };
     if ("serviceWorker" in navigator) {
       const proto = window.location.protocol;
       if (proto === "http:" || proto === "https:") {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("SW failed", e));
-        });
+        // Hydration can finish after the load event, so cover both orders.
+        if (document.readyState === "complete") onLoad();
+        else window.addEventListener("load", onLoad);
       }
     }
+
     const onAuth = () => setUser(getCurrentUser());
     const onLang = (e: Event) => setLangState((e as CustomEvent<Lang>).detail ?? getLang());
+    const onA11y = (e: Event) => {
+      const d = (e as CustomEvent<{ font?: FontScale; hidden?: boolean }>).detail;
+      if (d?.font) setFontScaleState(d.font);
+      if (typeof d?.hidden === "boolean") setDockHiddenState(d.hidden);
+    };
     const onSettings = (e: Event) =>
       setSettingsState((e as CustomEvent<Settings>).detail ?? getSettings());
     window.addEventListener("stp:auth", onAuth);
     window.addEventListener("stp:lang", onLang);
+    window.addEventListener("stp:a11y", onA11y);
     window.addEventListener("stp:settings", onSettings);
     window.addEventListener("online", flushQueue);
     return () => {
+      window.removeEventListener("load", onLoad);
       window.removeEventListener("stp:auth", onAuth);
       window.removeEventListener("stp:lang", onLang);
+      window.removeEventListener("stp:a11y", onA11y);
       window.removeEventListener("stp:settings", onSettings);
       window.removeEventListener("online", flushQueue);
     };
@@ -161,6 +217,16 @@ function Inner({ children }: { children: ReactNode }) {
     persistLang(l);
   }, []);
 
+  const setFontScale = useCallback((f: FontScale) => {
+    setFontScaleState(f);
+    persistFontScale(f);
+  }, []);
+
+  const setDockHidden = useCallback((hidden: boolean) => {
+    setDockHiddenState(hidden);
+    persistDockHidden(hidden);
+  }, []);
+
   const refresh = useCallback(async () => {
     const s = getAuthSession();
     setUser(s?.user ?? null);
@@ -182,8 +248,26 @@ function Inner({ children }: { children: ReactNode }) {
 
   const langCtx = useMemo(() => ({ lang, setLang }), [lang, setLang]);
   const settingsCtx = useMemo(
-    () => ({ settings, saveSettings, themeMode, setThemeMode }),
-    [settings, saveSettings, themeMode, setThemeMode]
+    () => ({
+      settings,
+      saveSettings,
+      themeMode,
+      setThemeMode,
+      fontScale,
+      setFontScale,
+      dockHidden,
+      setDockHidden,
+    }),
+    [
+      settings,
+      saveSettings,
+      themeMode,
+      setThemeMode,
+      fontScale,
+      setFontScale,
+      dockHidden,
+      setDockHidden,
+    ]
   );
 
   return (
@@ -197,11 +281,18 @@ function Inner({ children }: { children: ReactNode }) {
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-      <TooltipProvider>
-        <Inner>{children}</Inner>
-        <Toaster richColors position="bottom-left" />
-      </TooltipProvider>
-    </ThemeProvider>
+    <>
+      {/* Pre-paint: the saved text size and the dismissed-dock flag are put
+          on <html> before the first render, the way next-themes applies the
+          colour theme, so the page never jumps from the default size and a
+          dismissed button never flashes back. */}
+      <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: A11Y_BOOT_SCRIPT }} />
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <TooltipProvider>
+          <Inner>{children}</Inner>
+          <Toaster richColors position="bottom-left" />
+        </TooltipProvider>
+      </ThemeProvider>
+    </>
   );
 }

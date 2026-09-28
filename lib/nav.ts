@@ -2,27 +2,32 @@
    lib/nav.ts - the one nav model for header + mobile drawer
    Ports the NAV table from js/app.js: href routes, group
    headings, one-line hints, and auth/editor/admin visibility.
+
+   Labels and hints are dictionary keys, not text, so the
+   header can render them in the footer language. See
+   lib/i18n/strings.ts.
    =========================================================== */
+import type { StringKey } from "@/lib/i18n/strings";
 
 export interface NavLink {
   href: string;
-  label: string;
+  label: StringKey;
   group: "study" | "manage";
-  hint: string;
+  hint: StringKey;
   auth?: boolean;
   editor?: boolean;
   admin?: boolean;
 }
 
 export const NAV: NavLink[] = [
-  { href: "/", label: "Home", group: "study", hint: "Question bank at a glance" },
-  { href: "/library", label: "Library", group: "study", hint: "Browse every subject and topic" },
-  { href: "/flashcards", label: "Flashcards", group: "study", hint: "Flip cards for quick revision" },
-  { href: "/test", label: "Test", group: "study", hint: "Timed test with instant scoring" },
-  { href: "/progress", label: "Progress", group: "study", auth: true, hint: "Scores, weak topics and trends" },
-  { href: "/questions", label: "Questions", group: "manage", editor: true, hint: "Upload, preview and export questions" },
-  { href: "/subjects", label: "Subjects", group: "manage", admin: true, hint: "Syllabus subjects and topics" },
-  { href: "/profile", label: "Profile", group: "manage", auth: true, hint: "Your account and settings" },
+  { href: "/", label: "nav.home", group: "study", hint: "nav.hint.home" },
+  { href: "/library", label: "nav.library", group: "study", hint: "nav.hint.library" },
+  { href: "/flashcards", label: "nav.flashcards", group: "study", hint: "nav.hint.flashcards" },
+  { href: "/test", label: "nav.test", group: "study", hint: "nav.hint.test" },
+  { href: "/progress", label: "nav.progress", group: "study", auth: true, hint: "nav.hint.progress" },
+  { href: "/questions", label: "nav.questions", group: "manage", editor: true, hint: "nav.hint.questions" },
+  { href: "/subjects", label: "nav.subjects", group: "manage", admin: true, hint: "nav.hint.subjects" },
+  { href: "/profile", label: "nav.profile", group: "manage", auth: true, hint: "nav.hint.profile" },
 ];
 
 export interface NavVisibility {
@@ -41,7 +46,7 @@ export function visibleNav(v: NavVisibility): NavLink[] {
   });
 }
 
-export const GROUP_TITLES: Record<NavLink["group"], string> = {
-  study: "Study",
-  manage: "Manage",
+export const GROUP_TITLES: Record<NavLink["group"], StringKey> = {
+  study: "nav.group.study",
+  manage: "nav.group.manage",
 };

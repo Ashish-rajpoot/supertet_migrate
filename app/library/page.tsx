@@ -22,6 +22,7 @@ import { DifficultyBadge, EmptyState, NameLabel, PageShell } from "@/components/
 import { useSyllabusLabels } from "@/lib/data/labels";
 import { getAllWithServer } from "@/lib/data/normalize";
 import { langOf } from "@/lib/client/util";
+import { useT } from "@/lib/i18n/t";
 import type { Question } from "@/lib/types";
 
 interface TopicGroup {
@@ -41,6 +42,7 @@ export default function LibraryPage() {
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState("");
   const labels = useSyllabusLabels();
+  const { t } = useT();
 
   useEffect(() => {
     let cancelled = false;
@@ -96,12 +98,14 @@ export default function LibraryPage() {
 
   return (
     <PageShell
-      title="Question library"
-      description="Every subject, topic and question in the bank."
+      title={t("library.title")}
+      description={t("library.desc")}
       wide
       actions={
         <Badge variant="secondary">
-          {query ? `${shown} of ${total} questions` : `${total} questions`}
+          {query
+            ? t("library.count", { a: shown, b: total })
+            : t("library.countAll", { n: total })}
         </Badge>
       }
     >
@@ -110,15 +114,15 @@ export default function LibraryPage() {
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search subjects, topics or question text..."
-          aria-label="Search the question bank"
+          placeholder={t("library.search")}
+          aria-label={t("library.searchAria")}
           className="pr-9 pl-9"
         />
         {query ? (
           <button
             type="button"
             onClick={() => setQuery("")}
-            aria-label="Clear search"
+            aria-label={t("library.clear")}
             className="absolute top-1/2 right-3 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-foreground"
           >
             <X className="size-4" />
@@ -136,11 +140,9 @@ export default function LibraryPage() {
         </div>
       ) : (
         <EmptyState
-          title={groups.length ? "Nothing matches that search" : "The bank is empty"}
+          title={groups.length ? t("library.emptyMatch") : t("library.emptyBank")}
           hint={
-            groups.length
-              ? "Try a different subject, topic or word from a question."
-              : "Add questions from the Questions page, or check the seed files in public/data."
+            groups.length ? t("library.emptyMatchHint") : t("library.emptyBankHint")
           }
         />
       )}
@@ -177,6 +179,7 @@ function SubjectBlock({ group, query }: { group: SubjectGroup; query: string }) 
   const isOpen = manual ?? Boolean(query.trim());
   const labels = useSyllabusLabels();
   const name = labels.subject(group.subject);
+  const { t } = useT();
 
   return (
     <Collapsible open={isOpen} onOpenChange={setManual} className="overflow-hidden rounded-xl border">
@@ -195,7 +198,7 @@ function SubjectBlock({ group, query }: { group: SubjectGroup; query: string }) 
               className="min-w-0 flex-1 font-semibold"
             />
             <Badge variant="secondary" className="shrink-0">
-              {group.topics.length} topic{group.topics.length === 1 ? "" : "s"}
+              {t("library.topicCount", { n: group.topics.length })}
             </Badge>
             <Badge variant="outline" className="shrink-0">
               {group.count}
@@ -268,6 +271,7 @@ function TopicBlock({
 
 /** One question, with its options and the correct answer marked. */
 function QuestionCard({ question: q }: { question: Question }) {
+  const { t } = useT();
   const hi = q.options.hi || [];
   const en = q.options.en || [];
   const count = Math.max(hi.length, en.length);
@@ -285,7 +289,7 @@ function QuestionCard({ question: q }: { question: Question }) {
         ))}
       </div>
 
-      <p className="mb-2 font-medium">{langOf(q.question) || "(no text)"}</p>
+      <p className="mb-2 font-medium">{langOf(q.question) || t("library.noText")}</p>
 
       <div className="flex flex-col gap-1.5">
         {Array.from({ length: count }, (_, i) => (
