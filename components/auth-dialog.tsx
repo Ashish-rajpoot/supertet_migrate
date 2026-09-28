@@ -342,21 +342,56 @@ function OtpLoginForm({ onNeedOtp }: { onNeedOtp: (c: OtpCtx) => void }) {
   );
 }
 
+/** The slice of window that Google Identity Services adds. */
+interface GoogleWindow {
+  google?: {
+    accounts?: {
+      id?: {
+        initialize: (o: object) => void;
+        renderButton: (el: Element, o: object) => void;
+      };
+    };
+  };
+}
+
+/** True once the Identity Services script has actually run. */
+function gsiLoaded(): boolean {
+  return Boolean((window as unknown as GoogleWindow).google?.accounts?.id);
+}
+
 function GoogleButton() {
   const { settings } = useSettings();
-  const clientId = settings.googleClientId;
+  // The id the deployment was built with wins; settings.googleClientId remains
+  // as a per-device override for installs that stored one.
+  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || settings.googleClientId;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Identity Services arrives asynchronously, so the button can only be
+  // rendered after its script has loaded. Waiting on this flag instead of
+  // hoping the script beat the first effect is what makes the button appear
+  // on the very first open of the dialog.
+  const [gsiReady, setGsiReady] = useState(false);
 
   useEffect(() => {
-    if (!clientId) return;
-    if (document.getElementById("google-gsi")) return;
+    if (!clientId || gsiLoaded()) {
+      if (clientId) setGsiReady(true);
+      return;
+    }
+    const onLoad = () => setGsiReady(true);
+    const existing = document.getElementById("google-gsi");
+    if (existing) {
+      existing.addEventListener("load", onLoad, { once: true });
+      return () => existing.removeEventListener("load", onLoad);
+    }
     const s = document.createElement("script");
     s.id = "google-gsi";
     s.src = "https://accounts.google.com/gsi/client";
     s.async = true;
     s.defer = true;
+    s.addEventListener("load", onLoad, { once: true });
+    s.addEventListener("error", () => setError("Could not reach Google Sign-In."));
     document.head.appendChild(s);
+    return () => s.removeEventListener("load", onLoad);
   }, [clientId]);
 
   async function handleCredential(credential: string) {
@@ -373,12 +408,8 @@ function GoogleButton() {
   }
 
   useEffect(() => {
-    if (!clientId) return;
-    const w = window as unknown as {
-      google?: {
-        accounts?: { id?: { initialize: (o: object) => void; renderButton: (el: object, o: object) => void } };
-      };
-    };
+    if (!clientId || !gsiReady) return;
+    const w = window as unknown as GoogleWindow;
     if (!w.google?.accounts?.id) return;
     const host = document.getElementById("google-btn-host");
     if (!host || host.dataset.done) return;
@@ -390,7 +421,7 @@ function GoogleButton() {
       },
     });
     w.google.accounts.id.renderButton(host, { theme: "outline", size: "large", width: 280 });
-  }, [clientId]);
+  }, [clientId, gsiReady]);
 
   if (!clientId) return null;
 

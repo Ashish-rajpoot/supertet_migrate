@@ -428,11 +428,14 @@ interface GooglePayload {
 /**
  * Dev-friendly Google token check: decode the payload part of the JWT and
  * accept it when it carries an email. In production the token must be
- * minted for OUR client id (same rule as the Express server).
+ * minted for OUR client id (same rule as the Express server). Either env
+ * name works (see .env.example), so a deployment sets the id once and the
+ * browser button reads the NEXT_PUBLIC_ copy of the same value.
  */
 async function verifyGoogleToken(idToken: string): Promise<GooglePayload | null> {
   try {
-    const clientId = process.env.GOOGLE_CLIENT_ID || "";
+    const clientId =
+      process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
     const parts = idToken.split(".");
     if (parts.length !== 3) return null;
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
