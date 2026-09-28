@@ -169,11 +169,50 @@ export async function listUsers(): Promise<PublicUser[]> {
   return data.users || [];
 }
 
-/** Admin only: grant/revoke permission or change a role. */
-export async function updateUserPermissions(
-  id: string,
-  patch: { canAddQuestions?: boolean; role?: string }
-): Promise<PublicUser> {
+/** Fields the admin user-management page may send in one PATCH. */
+export interface UserPatch {
+  name?: string;
+  email?: string;
+  phone?: string;
+  userId?: string;
+  password?: string;
+  role?: string;
+  verified?: boolean;
+  canAddQuestions?: boolean;
+  classLevel?: string;
+  city?: string;
+  school?: string;
+  about?: string;
+}
+
+/** Admin only: create an account directly (no OTP step, verified by default). */
+export async function createUser(input: {
+  name?: string;
+  email?: string;
+  phone?: string;
+  userId?: string;
+  password: string;
+  role?: string;
+  verified?: boolean;
+  canAddQuestions?: boolean;
+}): Promise<PublicUser> {
+  const session = getAuthSession();
+  if (!session || !session.token) throw new Error("Please log in first");
+  const res = await fetch(getApiBase() + "/auth/users", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + session.token,
+    },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Could not create the user");
+  return data.user as PublicUser;
+}
+
+/** Admin only: update a user (role, permission or profile fields). */
+export async function updateUser(id: string, patch: UserPatch): Promise<PublicUser> {
   const session = getAuthSession();
   if (!session || !session.token) throw new Error("Please log in first");
   const res = await fetch(getApiBase() + "/auth/users/" + encodeURIComponent(id), {
@@ -190,5 +229,21 @@ export async function updateUserPermissions(
   if (me && data.user && me.id === data.user.id) {
     saveSession({ token: session.token, user: data.user });
   }
+  return data.user as PublicUser;
+}
+
+/** Back-compat name used by the Questions page permission panel. */
+export const updateUserPermissions = updateUser;
+
+/** Admin only: delete an account (your own and the last admin are blocked). */
+export async function deleteUser(id: string): Promise<PublicUser> {
+  const session = getAuthSession();
+  if (!session || !session.token) throw new Error("Please log in first");
+  const res = await fetch(getApiBase() + "/auth/users/" + encodeURIComponent(id), {
+    method: "DELETE",
+    headers: { Authorization: "Bearer " + session.token },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Could not delete the user");
   return data.user as PublicUser;
 }

@@ -43,6 +43,7 @@ export function toPublicUser(u: UserDoc) {
     city: u.city,
     school: u.school,
     about: u.about,
+    createdAt: u.createdAt ? new Date(u.createdAt).toISOString() : undefined,
   };
 }
 

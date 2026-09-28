@@ -12,7 +12,7 @@ import type { StringKey } from "@/lib/i18n/strings";
 export interface NavLink {
   href: string;
   label: StringKey;
-  group: "study" | "manage";
+  group: "study" | "manage" | "help";
   hint: StringKey;
   auth?: boolean;
   editor?: boolean;
@@ -27,7 +27,10 @@ export const NAV: NavLink[] = [
   { href: "/progress", label: "nav.progress", group: "study", auth: true, hint: "nav.hint.progress" },
   { href: "/questions", label: "nav.questions", group: "manage", editor: true, hint: "nav.hint.questions" },
   { href: "/subjects", label: "nav.subjects", group: "manage", admin: true, hint: "nav.hint.subjects" },
+  { href: "/users", label: "nav.users", group: "manage", admin: true, hint: "nav.hint.users" },
   { href: "/profile", label: "nav.profile", group: "manage", auth: true, hint: "nav.hint.profile" },
+  // Never gated on auth: anyone with a question should be able to reach out.
+  { href: "/contact", label: "nav.contact", group: "help", hint: "nav.hint.contact" },
 ];
 
 export interface NavVisibility {
@@ -49,4 +52,5 @@ export function visibleNav(v: NavVisibility): NavLink[] {
 export const GROUP_TITLES: Record<NavLink["group"], StringKey> = {
   study: "nav.group.study",
   manage: "nav.group.manage",
+  help: "nav.group.help",
 };
