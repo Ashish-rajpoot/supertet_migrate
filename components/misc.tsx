@@ -9,7 +9,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "cn";
-import { Accessibility, Inbox, MonitorSmartphone, Moon, Sun } from "lucide-react";
+import { Accessibility, Inbox, Mail, MonitorSmartphone, Moon, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -222,6 +222,12 @@ export function SiteFooter() {
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-2">
+          <Button variant="link" size="sm" asChild>
+            <Link href="/contact">
+              <Mail />
+              <T k="nav.contact" />
+            </Link>
+          </Button>
           <Button variant="link" size="sm" asChild>
             <Link href="/questions">
               <T k="footer.addQuestions" />

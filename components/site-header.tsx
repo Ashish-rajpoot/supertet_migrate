@@ -154,7 +154,7 @@ function DrawerBody({ onNavigate }: { onNavigate: () => void }) {
           <AuthDialog open={loginOpen} onOpenChange={setLoginOpen} initialTab="login" />
         </div>
       )}
-      {(["study", "manage"] as const).map((g) => {
+      {(["study", "manage", "help"] as const).map((g) => {
         const items = links.filter((l) => l.group === g);
         if (!items.length) return null;
         return (
@@ -198,19 +198,24 @@ export function SiteHeader() {
           <span>SuperTET Prep</span>
         </Link>
         <nav className="ml-2 hidden items-center gap-1 lg:flex" aria-label={t("auth.primaryNav")}>
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              aria-current={isActive(l.href) ? "page" : undefined}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                isActive(l.href) && "bg-muted text-foreground"
-              )}
-            >
-              <T k={l.label} />
-            </Link>
-          ))}
+          {/* The help group is kept out of the top bar, which is already a
+              long strip once an admin is signed in; it lives in the drawer
+              and in the footer instead. */}
+          {links
+            .filter((l) => l.group !== "help")
+            .map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                aria-current={isActive(l.href) ? "page" : undefined}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                  isActive(l.href) && "bg-muted text-foreground"
+                )}
+              >
+                <T k={l.label} />
+              </Link>
+            ))}
         </nav>
         <div className="ml-auto hidden items-center gap-1.5 sm:flex">
           <UserChip />
