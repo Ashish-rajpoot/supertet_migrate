@@ -1,7 +1,12 @@
 import { Attempt, User } from "@/lib/server/models";
 import { getAuthPayload, requireAuth } from "@/lib/server/auth";
 import { queryOf, readBody, requireDb } from "@/lib/server/api";
-import { FREE_TEST_LIMIT, isQuotaExempt } from "@/lib/server/access";
+import {
+  FREE_TEST_LIMIT,
+  GUEST_TEST_LIMIT,
+  countGuestAttempts,
+  isQuotaExempt,
+} from "@/lib/server/access";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +86,9 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+    // A signed-out device is identified by a local id stored on the device;
+    // it is the only handle there is, and the guest quota is counted by it.
+    data.deviceId = String(data.deviceId || "").trim().slice(0, 64);
     if (payload && payload.id) {
       data.userId = payload.id;
       const account = await User.findOne({ id: payload.id }).lean();
@@ -104,8 +112,32 @@ export async function POST(req: Request) {
           }
         }
       }
-    } else if (!data.userId) {
+    } else {
       data.userId = "";
+      if (!data.deviceId) {
+        return Response.json(
+          {
+            error:
+              "This device cannot save results anonymously - update the app or sign in to continue.",
+          },
+          { status: 400 }
+        );
+      }
+      // Guest quota: without a login there is still a ceiling, counted per
+      // device, so the app cannot be used as an endless free test bank.
+      const exists = await Attempt.exists({ id: data.id });
+      if (!exists) {
+        const used = await countGuestAttempts(data.deviceId);
+        if (used >= GUEST_TEST_LIMIT) {
+          return Response.json(
+            {
+              error: `This device has used all ${GUEST_TEST_LIMIT} free tests. Sign in to keep testing.`,
+              needsSignIn: true,
+            },
+            { status: 403 }
+          );
+        }
+      }
     }
     const doc = await Attempt.findOneAndUpdate(
       { id: data.id },

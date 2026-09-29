@@ -227,6 +227,8 @@ export interface AttemptDoc {
   _id: Types.ObjectId;
   id: string;
   userId: string;
+  /** Signed-out devices are counted by this id (guest quota). */
+  deviceId: string;
   student: string;
   at: number;
   finishedAt: number;
@@ -294,6 +296,8 @@ const attemptSchema = new mongoose.Schema<AttemptDoc>(
   {
     id: { type: String, required: true, unique: true, index: true },
     userId: { type: String, default: "", index: true },
+    /** Signed-out devices are counted by this id, so a guest quota can exist. */
+    deviceId: { type: String, default: "", index: true },
     student: { type: String, default: "Anonymous", index: true },
     at: { type: Number, required: true, index: true },
     finishedAt: { type: Number, default: () => Date.now() },

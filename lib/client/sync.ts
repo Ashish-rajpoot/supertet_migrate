@@ -7,6 +7,7 @@ import type { Attempt, Question, StudentRow, SyllabusSubject } from "@/lib/types
 import {
   getAuthToken,
   getAuthUser,
+  getDeviceId,
   getSettings,
   getSyncQueue,
   setSyncQueue,
@@ -36,6 +37,8 @@ export interface SyncError extends Error {
   devOtp?: string;
   /** 403 from the free-tier quota: subscribe before saving more tests. */
   needsSubscription?: boolean;
+  /** 403 from the guest quota: this device's free tests are used up. */
+  needsSignIn?: boolean;
 }
 
 /**
@@ -75,10 +78,12 @@ function headers(json = true): Record<string, string> {
 async function errorFrom(res: Response, fallback: string): Promise<SyncError> {
   let msg = fallback || "Server error " + res.status;
   let needsSubscription = false;
+  let needsSignIn = false;
   try {
     const data = await res.json();
     if (data && data.error) msg = data.error;
     if (data && data.needsSubscription) needsSubscription = true;
+    if (data && data.needsSignIn) needsSignIn = true;
     if (data && data.needsVerification) {
       const err = new Error(msg) as SyncError;
       err.status = res.status;
@@ -93,6 +98,7 @@ async function errorFrom(res: Response, fallback: string): Promise<SyncError> {
   const err = new Error(msg) as SyncError;
   err.status = res.status;
   if (needsSubscription) err.needsSubscription = true;
+  if (needsSignIn) err.needsSignIn = true;
   return err;
 }
 
@@ -105,8 +111,10 @@ async function errorFrom(res: Response, fallback: string): Promise<SyncError> {
 export async function syncAttempt(attempt: Attempt) {
   const s = getSettings();
   const account = getAuthUser();
-  const payload = {
+  const payload: Attempt = {
     ...attempt,
+    // The device id is what a signed-out quota is counted against.
+    deviceId: attempt.deviceId || getDeviceId(),
     student: (s.name && s.name.trim()) || (account && account.name) || "Anonymous",
   };
   try {
@@ -116,7 +124,9 @@ export async function syncAttempt(attempt: Attempt) {
       body: JSON.stringify(payload),
     });
     if (res.ok) return { ok: true, synced: true };
-    if (res.status === 403) {
+    // A refusal (guest or free-tier quota, bad payload) is NOT queued -
+    // retrying would fail forever until the user signs in or subscribes.
+    if (res.status >= 400 && res.status < 500) {
       const err = await errorFrom(res, "Could not save the result");
       return { ok: false, synced: false, blocked: true, error: err.message };
     }
@@ -132,9 +142,10 @@ export async function syncAttempt(attempt: Attempt) {
 }
 
 /**
- * Retry every queued attempt. A free-tier refusal drops the item from
- * the queue instead of retrying it forever; the local copy on the
- * device is always kept, so nothing is lost.
+ * Retry every queued attempt. A refusal - the guest or free-tier quota,
+ * or a payload the server rejects - drops the item from the queue instead
+ * of retrying it forever; the local copy on the device is always kept, so
+ * nothing is lost.
  */
 export async function flushQueue() {
   const queue = getSyncQueue();
@@ -146,10 +157,11 @@ export async function flushQueue() {
       const res = await fetch(getApiBase() + "/attempts", {
         method: "POST",
         headers: headers(),
-        body: JSON.stringify(item),
+        // Queued from an older version: stamp the device id before sending.
+        body: JSON.stringify(item.deviceId ? item : { ...item, deviceId: getDeviceId() }),
       });
       if (!res.ok) {
-        if (res.status === 403) blocked++;
+        if (res.status >= 400 && res.status < 500) blocked++;
         else remaining.push(item);
       }
     } catch {
