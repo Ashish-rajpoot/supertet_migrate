@@ -6,9 +6,9 @@
    mine (own cloud attempts), all (admin, user-wise roster with
    drill-down). Signed-out visitors get a login gate.
    =========================================================== */
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,7 @@ import {
 } from "@/lib/data/analytics";
 import {
   clearAttempts as clearLocal,
+  dedupeAttempts,
   deleteAttempt as deleteLocal,
   getAttempts as getLocalAttempts,
 } from "@/lib/client/store";
@@ -60,8 +61,26 @@ interface ScopeData {
 }
 
 export default function ProgressPage() {
+  return (
+    <Suspense
+      fallback={
+        <PageShell title="Progress" description="Scores, weak topics and trends.">
+          <Skeleton className="h-64 w-full" />
+        </PageShell>
+      }
+    >
+      <ProgressInner />
+    </Suspense>
+  );
+}
+
+function ProgressInner() {
   const { signedIn, ready } = useAuth();
   const [loginOpen, setLoginOpen] = useState(false);
+  const searchParams = useSearchParams();
+  // Admins arrive here from Users -> "View results" with ?userId=<id>.
+  const deepUserId = searchParams?.get("userId") || "";
+  const deepApplied = useRef(false);
   const [scope, setScope] = useState<Scope>("mine");
   const [selectedUser, setSelectedUser] = useState("");
   const [server, setServer] = useState<ServerStatus>({ online: false, mongo: false });
@@ -88,7 +107,8 @@ export default function ProgressPage() {
     } else {
       try {
         const res = await fetchAttempts(sc === "all" ? { scope: "all" } : {});
-        list = res.attempts || [];
+        // One row per attempt id, so the history table cannot repeat itself.
+        list = dedupeAttempts(res.attempts || []);
       } catch {
         if (sc === "mine" && isLoggedIn()) {
           list = getLocalAttempts();
@@ -115,10 +135,19 @@ export default function ProgressPage() {
       setLoading(false);
       return;
     }
+    if (deepApplied.current) return;
+    deepApplied.current = true;
+    // A ?userId= deep link (admin "View results") opens that student's dashboard.
+    if (deepUserId && isAdmin()) {
+      setScope("all");
+      setSelectedUser(deepUserId);
+      void doLoad("all", deepUserId);
+      return;
+    }
     setScope("mine");
     setSelectedUser("");
     void doLoad("mine", "");
-  }, [ready, signedIn, doLoad]);
+  }, [ready, signedIn, deepUserId, doLoad]);
 
   if (!ready || loading) {
     return (

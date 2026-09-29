@@ -17,10 +17,12 @@
 
    at resolveModelChunk in the React client. Therefore:
 
-   1. RSC traffic, Server Actions, HMR and anything the app asked to
-      fetch fresh (cache: "no-store" / "reload" / "no-cache") is never
-      intercepted - return without respondWith and let the browser talk
-      to the network itself.
+   1. RSC traffic, Server Actions, HMR and reload / no-cache asks are
+      never intercepted - return without respondWith and let the browser
+      talk to the network itself. Bundled offline content (/data/,
+      /templates/) IS intercepted even for no-store fetches: it is
+      precached and served network-first, so online users still get a
+      fresh copy and offline users get the cached one.
    2. Content-addressed assets (/_next/static/, /icons/) are
       cache-first: a given URL can never be the wrong version.
    3. Everything the app needs offline (question bank, syllabus,
@@ -32,7 +34,7 @@
    previously poisoned cache is cleared.
    =========================================================== */
 
-const VERSION = "supertet-v2";
+const VERSION = "supertet-v3";
 const PRECACHE = `${VERSION}-precache`;
 const RUNTIME = `${VERSION}-runtime`;
 
@@ -57,8 +59,13 @@ const RSC_HEADERS = [
    when the network is unreachable - navigations try the network first. */
 const PRECACHE_URLS = [
   "/",
+  "/offline",
+  "/library",
   "/flashcards",
   "/test",
+  "/progress",
+  "/questions",
+  "/subjects",
   "/data/index.json",
   "/data/gk-gs.json",
   "/data/child.json",
@@ -122,8 +129,15 @@ function shouldBypass(req, url) {
   if (url.pathname.startsWith("/_next/turbopack-hmr")) return true;
   if (url.pathname.startsWith("/__nextjs")) return true;
 
-  // The page explicitly asked for a fresh copy.
-  if (req.cache === "no-store" || req.cache === "reload" || req.cache === "no-cache") return true;
+  // The page explicitly asked for a fresh copy. Honour that everywhere
+  // except the bundled offline bank (/data/, /templates/): those URLs are
+  // precached and served network-first by the handler below, so a fresh
+  // fetch still hits the network when online and only falls back to the
+  // cache when the network is unreachable. Without this exception every
+  // no-store fetch for the question bank bypasses the SW and fails offline
+  // even though the file is cached.
+  if (req.cache === "reload" || req.cache === "no-cache") return true;
+  if (req.cache === "no-store" && !startsWithAny(url.pathname, DYNAMIC_PREFIXES)) return true;
 
   // A ranged request would be stored truncated.
   if (req.headers.get("range")) return true;
@@ -147,16 +161,19 @@ function offlineResponse() {
 function remember(req, res) {
   if (!res || res.status !== 200 || res.type === "opaque") return Promise.resolve();
   const cc = res.headers.get("cache-control") || "";
-  if (cc.includes("no-store") || cc.includes("private")) return Promise.resolve();
+  if (cc.includes("private")) return Promise.resolve();
   let copy;
   try {
     copy = res.clone();
   } catch {
     return Promise.resolve();
   }
+  // cache.put() rejects when the request itself is no-store, so store a
+  // cacheable twin of the key. The fallback lookup tries both keys.
+  const key = (req.cache === "no-store") ? new Request(req.url) : req;
   return caches
     .open(RUNTIME)
-    .then((cache) => cache.put(req, copy))
+    .then((cache) => cache.put(key, copy))
     .catch(() => {});
 }
 
@@ -165,10 +182,12 @@ function serveCacheFirst(req, event) {
   event.respondWith(
     caches.match(req).then((hit) => {
       if (hit) return hit;
-      return fetch(req).then((res) => {
-        event.waitUntil(remember(req, res));
-        return res;
-      });
+      return fetch(req)
+        .then((res) => {
+          event.waitUntil(remember(req, res));
+          return res;
+        })
+        .catch(() => offlineFallback(req));
     })
   );
 }
@@ -192,10 +211,13 @@ function serveNetworkFirst(req, event, fallbackUrl) {
  * be asked first.
  */
 function offlineFallback(req, fallbackUrl) {
+  const twin = (req.cache === "no-store") ? new Request(req.url) : null;
+  const matchBoth = (hit) => hit || (twin ? caches.match(twin) : Promise.resolve(undefined));
   return caches
     .open(RUNTIME)
-    .then((cache) => cache.match(req))
+    .then((cache) => cache.match(req).then((hit) => hit || (twin ? cache.match(twin) : undefined)))
     .then((hit) => hit || caches.match(req))
+    .then(matchBoth)
     .then((hit) => hit || (fallbackUrl ? caches.match(fallbackUrl) : Promise.resolve(undefined)))
     .then((hit) => hit || offlineResponse());
 }
@@ -206,9 +228,11 @@ self.addEventListener("fetch", (event) => {
 
   if (shouldBypass(req, url)) return;
 
-  // Documents: fresh while online, cached shell when offline.
+  // Documents: fresh while online, cached shell when offline. The last
+  // resort is the dedicated offline page (precached above), which links
+  // back into the routes that fully work without a network.
   if (req.mode === "navigate") {
-    serveNetworkFirst(req, event, "/");
+    serveNetworkFirst(req, event, "/offline");
     return;
   }
 

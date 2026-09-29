@@ -20,6 +20,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AuthDialog } from "@/components/auth-dialog";
 import { PageShell } from "@/components/misc";
+import { SubscriptionCard } from "@/components/subscription-card";
 import { useAuth } from "@/components/providers";
 import { changePassword, logout, roleLabel, updateProfile } from "@/lib/client/auth-client";
 import { checkServerStatus, type ServerStatus } from "@/lib/client/sync";
@@ -177,6 +178,9 @@ export default function ProfilePage() {
 
       {/* ---------------- editable details ---------------- */}
       <DetailsForm key={user.id} user={user} disabled={offline} onSaved={refresh} />
+
+      {/* ---------------- plan / subscription ---------------- */}
+      <SubscriptionCard disabled={offline} />
 
       {/* ---------------- password ---------------- */}
       <Card>

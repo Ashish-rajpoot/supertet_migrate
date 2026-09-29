@@ -11,7 +11,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Flag, Pause, Play } from "lucide-react";
+import { Crown, Flag, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,9 +31,9 @@ import {
 } from "@/lib/client/store";
 import { syncAttempt } from "@/lib/client/sync";
 import { fmtTime, pick, shuffle, uid } from "@/lib/client/util";
-import { canAddQuestions } from "@/lib/client/auth-client";
-import { useSettings } from "@/components/providers";
-import type { Attempt, AttemptDetail, Question } from "@/lib/types";
+import { canAddQuestions, fetchAccess } from "@/lib/client/auth-client";
+import { useAuth, useSettings } from "@/components/providers";
+import type { AccessStatus, Attempt, AttemptDetail, Question } from "@/lib/types";
 
 void DATA_LETTERS;
 
@@ -103,6 +103,7 @@ function TestInner() {
   const params = useSearchParams();
   const { t } = useT();
   const { settings } = useSettings();
+  const { signedIn, ready } = useAuth();
   const [bank, setBank] = useState<Question[] | null>(null);
   const [syllabus, setSyllabus] = useState<string[]>([]);
   const [run, setRun] = useState<RunState | null>(null);
@@ -180,6 +181,29 @@ function TestInner() {
     return Array.from(new Set([...syllabus, ...fromBank])).sort();
   }, [bank, syllabus]);
 
+  /* ---------------- plan / free-tier quota ---------------- */
+  // Only signed-in accounts are counted (offline use has nothing to
+  // enforce against), and `/api/access` is the source of truth.
+  const [access, setAccess] = useState<AccessStatus | null>(null);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!signedIn) {
+      setAccess(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const status = await fetchAccess();
+      if (!cancelled) setAccess(status);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, signedIn]);
+
+  const quotaBlocked = Boolean(signedIn && access && !access.fullAccess && access.testsRemaining <= 0);
+
   const allTopics = useMemo(() => {
     const list = (bank || [])
       .filter((q) => !subjects.length || subjects.includes(q.subject))
@@ -254,6 +278,11 @@ function TestInner() {
 
   function startFromForm() {
     if (!bank) return;
+    // Free tier: block starting once the five saved tests are used up.
+    if (quotaBlocked) {
+      toast.error(t("sub.testGate"));
+      return;
+    }
     const pool = bank.filter(
       (q) =>
         (!subjects.length || subjects.includes(q.subject)) &&
@@ -281,8 +310,13 @@ function TestInner() {
         : t("test.toast.started")
     );
   }
+  const finishedRun = useRef<string | null>(null);
   const finish = useCallback(
     (r: RunState) => {
+      // The countdown and the Finish button can both fire for one run: the
+      // first submission wins, so the attempt is never saved twice.
+      if (finishedRun.current === r.id) return;
+      finishedRun.current = r.id;
       const now = Date.now();
       const timeTaken = Math.round((now - r.at) / 1000);
       const penalty = r.negative ? 1 : 0;
@@ -411,8 +445,50 @@ function TestInner() {
 
   if (!run) {
     return (
-      <SetupForm
-        allSubjects={allSubjects}
+      <PageShell title={t("test.title")} description={t("test.desc")}>
+        {/* Free-tier banner: signed-in accounts see the remaining tests,
+            and a locked-out account gets the subscribe call to action. */}
+        {signedIn && access ? (
+          <Card
+            className={
+              quotaBlocked ? "mb-4 border-destructive/40 bg-destructive/5" : "mb-4"
+            }
+          >
+            <CardContent className="flex flex-wrap items-center gap-2 p-4 text-sm">
+              <Badge variant={access.fullAccess ? "default" : quotaBlocked ? "destructive" : "secondary"}>
+                {access.unlimited
+                  ? t("sub.planUnlimited")
+                  : access.fullAccess
+                    ? t("sub.planFull")
+                    : t("sub.planFree")}
+              </Badge>
+              {access.fullAccess ? (
+                <span className="text-muted-foreground">
+                  {access.unlimited ? t("sub.unlimitedHint") : t("sub.fullHint")}
+                </span>
+              ) : (
+                <span className={quotaBlocked ? "text-destructive" : "text-muted-foreground"}>
+                  {quotaBlocked
+                    ? t("sub.testGate")
+                    : `${t("sub.used", { used: access.testsUsed, free: access.testsFree })} · ${t("sub.left", { n: access.testsRemaining })}`}
+                </span>
+              )}
+              {!access.fullAccess ? (
+                <Button size="sm" className="ml-auto" asChild>
+                  <Link href="/profile">
+                    <Crown /> {t("sub.upgrade")}
+                  </Link>
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" className="ml-auto" asChild>
+                  <Link href="/profile">{t("sub.viewPlan")}</Link>
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+        <SetupForm
+          allSubjects={allSubjects}
         allTopics={allTopics}
         bank={bank}
         subjects={subjects}
@@ -440,6 +516,7 @@ function TestInner() {
         defaultCount={settings.defaultCount}
         defaultMinutes={settings.defaultMinutes}
       />
+      </PageShell>
     );
   }
 
@@ -704,11 +781,15 @@ function Runner({
   const timed = run.mode === "test" && run.endAt > 0;
   const remainMs = timed ? Math.max(0, run.endAt - now) : 0;
 
-  // Tick the clock; auto-submit at zero.
+  // Tick the clock; auto-submit at zero - once, not on every tick.
+  const timeUp = useRef(false);
   useEffect(() => {
     if (!timed || paused) return;
     if (remainMs <= 0) {
-      toast.warning(tRef.current("test.toast.timeOver"));
+      if (!timeUp.current) {
+        timeUp.current = true;
+        toast.warning(tRef.current("test.toast.timeOver"));
+      }
       finishRef.current(run);
       return;
     }

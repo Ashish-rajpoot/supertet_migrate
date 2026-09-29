@@ -63,6 +63,79 @@ export function addQuestions(list: Question[]) {
   return { added, updated, total: byId.size };
 }
 
+/** Replace one device question with an edited copy (seed/visible merge picks it up). */
+export function updateQuestion(id: string, patch: Partial<Question>): Question | null {
+  const list = getQuestions();
+  const i = list.findIndex((q) => String(q.id) === String(id));
+  if (i < 0) return null;
+  const next = { ...list[i], ...patch, id: String(id) };
+  const copy = list.slice();
+  copy[i] = next;
+  setQuestions(copy);
+  return next;
+}
+
+/** Cascade helper: rename a subject (optionally one topic) on this device. */
+export function renameSubjectOnDevice(from: string, to: string, topic?: string): number {
+  const want = String(from || "").trim().toLowerCase();
+  const nextName = String(to || "").trim();
+  if (!want || !nextName) return 0;
+  const wantTopic = topic == null ? null : String(topic).trim().toLowerCase();
+  let touched = 0;
+  const list = getQuestions().map((q) => {
+    if (String(q.subject || "").trim().toLowerCase() !== want) return q;
+    if (wantTopic != null && String(q.topic || "").trim().toLowerCase() !== wantTopic) return q;
+    touched++;
+    return { ...q, subject: nextName };
+  });
+  if (touched) setQuestions(list);
+  return touched;
+}
+
+/** Cascade helper: rename one topic (scoped to its subject) on this device. */
+export function renameTopicOnDevice(subject: string, from: string, to: string): number {
+  const wantS = String(subject || "").trim().toLowerCase();
+  const wantT = String(from || "").trim().toLowerCase();
+  const nextName = String(to || "").trim();
+  if (!wantS || !wantT || !nextName) return 0;
+  let touched = 0;
+  const list = getQuestions().map((q) => {
+    if (String(q.subject || "").trim().toLowerCase() !== wantS) return q;
+    if (String(q.topic || "").trim().toLowerCase() !== wantT) return q;
+    touched++;
+    return { ...q, topic: nextName };
+  });
+  if (touched) setQuestions(list);
+  return touched;
+}
+
+/** Cascade helper: delete a whole subject (optionally one topic) on this device. */
+export function deleteSubjectOnDevice(subject: string, topic?: string): number {
+  const want = String(subject || "").trim().toLowerCase();
+  if (!want) return 0;
+  const wantTopic = topic == null ? null : String(topic).trim().toLowerCase();
+  const before = getQuestions();
+  const rest = before.filter((q) => {
+    if (String(q.subject || "").trim().toLowerCase() !== want) return true;
+    if (wantTopic != null && String(q.topic || "").trim().toLowerCase() !== wantTopic) return true;
+    return false;
+  });
+  if (rest.length !== before.length) setQuestions(rest);
+  return before.length - rest.length;
+}
+
+/** How many device questions point at a subject (optionally one topic). */
+export function countQuestionsOnDevice(subject: string, topic?: string): number {
+  const want = String(subject || "").trim().toLowerCase();
+  if (!want) return 0;
+  const wantTopic = topic == null ? null : String(topic).trim().toLowerCase();
+  return getQuestions().filter((q) => {
+    if (String(q.subject || "").trim().toLowerCase() !== want) return false;
+    if (wantTopic != null && String(q.topic || "").trim().toLowerCase() !== wantTopic) return false;
+    return true;
+  }).length;
+}
+
 export function removeQuestion(id: string) {
   const before = getQuestions();
   const rest = before.filter((q) => String(q.id) !== String(id));
@@ -75,6 +148,22 @@ export function removeQuestion(id: string) {
   return before.length - rest.length;
 }
 
+/** Drop one id from the hidden list (a re-uploaded row resurrects). */
+export function unhide(id: string) {
+  const hidden = read<string[]>(K.hidden, []);
+  const rest = hidden.filter((h) => String(h) !== String(id));
+  if (rest.length !== hidden.length) write(K.hidden, rest);
+}
+
+/** Drop many ids from the hidden list. */
+export function unhideMany(ids: string[]) {
+  if (!ids.length) return;
+  const drop = new Set(ids.map(String));
+  const hidden = read<string[]>(K.hidden, []);
+  const rest = hidden.filter((h) => !drop.has(String(h)));
+  if (rest.length !== hidden.length) write(K.hidden, rest);
+}
+
 export function clearUserQuestions() {
   setQuestions([]);
   write(K.hidden, []);
@@ -83,11 +172,40 @@ export function clearUserQuestions() {
 export const getHidden = (): string[] => read<string[]>(K.hidden, []);
 export const setHidden = (ids: string[]) => write(K.hidden, ids || []);
 /* ---------------- attempts (results) ---------------- */
-export const getAttempts = (): Attempt[] => read<Attempt[]>(K.attempts, []);
 
+/**
+ * One row per attempt id, first position kept, the newest copy winning.
+ *
+ * A run can reach the store twice: the timer calls finish() and the student
+ * presses Finish, and the same attempt id gets added in both. Duplicate ids
+ * then break React's list keys in the history table and double-count the
+ * progress numbers, so every read funnels through this.
+ */
+export function dedupeAttempts(list: Attempt[] = []): Attempt[] {
+  const out: Attempt[] = [];
+  const seen = new Map<string, number>();
+  for (const a of list) {
+    if (!a) continue;
+    const id = String(a.id || "");
+    const at = id ? seen.get(id) : undefined;
+    if (at != null) {
+      out[at] = a;
+      continue;
+    }
+    if (id) seen.set(id, out.length);
+    out.push(a);
+  }
+  return out;
+}
+
+export const getAttempts = (): Attempt[] => dedupeAttempts(read<Attempt[]>(K.attempts, []));
+
+/** Save a finished run. The same id replaces its old copy instead of doubling it. */
 export function addAttempt(attempt: Attempt) {
   const list = getAttempts();
-  list.push(attempt);
+  const at = list.findIndex((a) => String(a.id) === String(attempt.id));
+  if (at >= 0) list[at] = attempt;
+  else list.push(attempt);
   write(K.attempts, list.slice(-300)); // keep storage bounded
   return attempt;
 }

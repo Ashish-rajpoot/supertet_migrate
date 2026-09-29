@@ -1,6 +1,7 @@
 import { Otp, User } from "@/lib/server/models";
 import { hashPassword, requireAdmin } from "@/lib/server/auth";
 import { readBody, requireDb, toPublicUser } from "@/lib/server/api";
+import { extendSubscription } from "@/lib/server/access";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,9 @@ async function otherAdminCount(id: string): Promise<number> {
  * PATCH /api/auth/users/:id - admin only. Grants/revokes
  * `canAddQuestions`, promotes/demotes a role, edits the profile
  * fields (name, email, phone, user id, verification, class, city,
- * school, about) and optionally resets the password (when a
- * non-empty `password` is sent).
+ * school, about), manages access (`unlimited` grant plus approving
+ * or rejecting a pending payment) and optionally resets the password
+ * (when a non-empty `password` is sent).
  */
 export async function PATCH(req: Request, { params }: Ctx) {
   const auth = await requireAdmin(req);
@@ -62,6 +64,32 @@ export async function PATCH(req: Request, { params }: Ctx) {
       target.role = role as "user" | "admin";
       // Admins can always add questions, so keep the flag consistent.
       if (role === "admin") target.canAddQuestions = true;
+    }
+
+    /* ------------- subscription / payment decision ------------- */
+    if (has(body, "unlimited")) {
+      target.unlimited = Boolean(body.unlimited);
+    }
+    if (has(body, "paymentDecision")) {
+      const decision = String(body.paymentDecision);
+      if (!["approved", "rejected"].includes(decision)) {
+        return Response.json(
+          { error: "paymentDecision must be 'approved' or 'rejected'" },
+          { status: 400 }
+        );
+      }
+      if (target.payment?.status !== "pending") {
+        return Response.json(
+          { error: "There is no pending payment on this account" },
+          { status: 400 }
+        );
+      }
+      target.payment.status = decision as "approved" | "rejected";
+      target.payment.decidedAt = new Date();
+      // Approval adds 30 days on top of whatever time is already left.
+      if (decision === "approved") {
+        target.subscriptionExpiresAt = extendSubscription(target.subscriptionExpiresAt);
+      }
     }
 
     /* ------------- profile fields (admin-managed) ------------- */

@@ -8,7 +8,7 @@
    =========================================================== */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Copy, FileUp, Trash2, Wand2 } from "lucide-react";
+import { Copy, FileUp, Pencil, Trash2, Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import { AuthDialog } from "@/components/auth-dialog";
 import { ComboBox } from "@/components/combo-box";
+import { QuestionEditorDialog } from "@/components/question-editor";
 import { PageShell, SectionCard } from "@/components/misc";
 import { useAuth } from "@/components/providers";
 import {
@@ -49,12 +50,17 @@ import {
   parseJsonText,
 } from "@/lib/data/importer";
 import { getAll, normaliseRow } from "@/lib/data/normalize";
-import { addQuestions, getQuestions, removeQuestion, usageBytes } from "@/lib/client/store";
+import { addQuestions, getQuestions, usageBytes } from "@/lib/client/store";
 import {
   checkServerStatus,
   pushQuestions as syncQuestions,
   type ServerStatus,
 } from "@/lib/client/sync";
+import {
+  deleteQuestion,
+  outcomeNote,
+  saveQuestion,
+} from "@/lib/client/question-crud";
 import { useSyllabus } from "@/lib/data/labels";
 import {
   canAddQuestions,
@@ -91,6 +97,10 @@ export default function QuestionsPage() {
   const [busy, setBusy] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  // One saved question, open in the editor for a fix.
+  const [editing, setEditing] = useState<Question | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
 
   // AI prompt card
   const [aiCount, setAiCount] = useState("20");
@@ -221,7 +231,24 @@ export default function QuestionsPage() {
       const res = addQuestions(list);
       if (server.mongo && canAddQuestions()) {
         try {
-          await syncQuestions(list);
+          const srv = await syncQuestions(list);
+          // Per-row refusals: say exactly which row and why, so the
+          // uploader can fix the sheet instead of guessing.
+          if (srv.invalid?.length) {
+            toast.warning(
+              `${srv.invalid.length} row(s) the server refused: ` +
+                srv.invalid
+                  .slice(0, 3)
+                  .map((p) => `row ${p.index + 1} (${p.id}): ${p.errors[0]}`)
+                  .join(" · ") +
+                (srv.invalid.length > 3 ? " ..." : "")
+            );
+          }
+          if (srv.skipped?.length) {
+            toast.info(
+              `${srv.skipped.length} question(s) belong to another user and were left alone`
+            );
+          }
         } catch (err) {
           toast.warning(
             "Saved on this device only - the shared bank refused: " +
@@ -243,10 +270,41 @@ export default function QuestionsPage() {
     }
   }
 
-  function deleteOne(id: string) {
-    removeQuestion(id);
-    toast.success("Question deleted");
-    void refreshStatus();
+  /* ---------------- edit / delete a saved question ---------------- */
+
+  function openEdit(q: Question) {
+    setEditing(q);
+    setEditorOpen(true);
+  }
+
+  /** Save an edit: the device copy first, then the shared bank. */
+  async function saveEdited(q: Question) {
+    setBusy(true);
+    try {
+      const outcome = await saveQuestion(q, { server: server.mongo && canAddQuestions() });
+      const note = outcomeNote(outcome);
+      if (outcome.status === "error") toast.warning(note);
+      else if (outcome.status === "missing") toast.info(note);
+      else toast.success("Question updated");
+      setEditorOpen(false);
+      setEditing(null);
+      await refreshStatus();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Delete here and, when the account may write, in the shared bank too. */
+  async function deleteOne(id: string) {
+    const outcome = await deleteQuestion(id, { server: server.mongo && mayEdit });
+    if (outcome.status === "error") toast.warning(outcomeNote(outcome));
+    else toast.success("Question deleted");
+    await refreshStatus();
+  }
+
+  /** Drop one row out of the preview - the quickest fix for a wrong upload. */
+  function dropPreviewRow(index: number) {
+    setPreview((p) => ({ ...p, questions: p.questions.filter((_, i) => i !== index) }));
   }
 
   /* ---------------- AI combobox choices ---------------- */
@@ -259,6 +317,14 @@ export default function QuestionsPage() {
     syllabus,
     mine.map((q) => ({ subject: q.subject, topic: q.topic })),
     aiSubject
+  );
+
+  // Same lists for the editor: topics follow the subject of the question
+  // that is open, not the one typed into the AI prompt card.
+  const editTopicChoices: Choice[] = buildTopicChoices(
+    syllabus,
+    mine.map((q) => ({ subject: q.subject, topic: q.topic })),
+    editing?.subject || ""
   );
 
   if (!ready) {
@@ -438,6 +504,7 @@ export default function QuestionsPage() {
                     <TableHead>Topic</TableHead>
                     <TableHead>Question</TableHead>
                     <TableHead>Answer</TableHead>
+                    <TableHead className="w-2" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -449,6 +516,17 @@ export default function QuestionsPage() {
                       <TableCell className="max-w-96 whitespace-normal">{langOf(q.question)}</TableCell>
                       <TableCell>
                         <Badge variant="secondary">{q.answerLetter}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => dropPreviewRow(i)}
+                          aria-label={`Drop row ${i + 1}`}
+                          title="Drop this row - it will not be saved"
+                        >
+                          <X />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -574,14 +652,24 @@ export default function QuestionsPage() {
                   </div>
                   <div className="truncate text-xs text-muted-foreground">{langOf(q.question)}</div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => deleteOne(q.id)}
-                  aria-label="Delete question"
-                >
-                  <Trash2 /> Delete
-                </Button>
+                <div className="flex shrink-0 gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => openEdit(q)}
+                    aria-label="Edit question"
+                  >
+                    <Pencil /> Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void deleteOne(q.id)}
+                    aria-label="Delete question"
+                  >
+                    <Trash2 /> Delete
+                  </Button>
+                </div>
               </div>
             ))}
             <div className="mt-2 flex flex-wrap gap-2">
@@ -625,6 +713,26 @@ export default function QuestionsPage() {
           }}
         />
       ) : null}
+
+      <QuestionEditorDialog
+        open={editorOpen && Boolean(editing)}
+        question={editing}
+        subjectChoices={subjectChoices}
+        topicChoices={editTopicChoices}
+        busy={busy}
+        onOpenChange={(next) => {
+          if (!next && !busy) {
+            setEditorOpen(false);
+            setEditing(null);
+          }
+        }}
+        onSave={(q) => saveEdited(q)}
+        onDelete={async (q) => {
+          await deleteOne(q.id);
+          setEditorOpen(false);
+          setEditing(null);
+        }}
+      />
 
       <AuthDialog open={loginOpen} onOpenChange={setLoginOpen} initialTab="login" />
     </PageShell>

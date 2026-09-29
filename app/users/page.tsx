@@ -9,12 +9,15 @@
    protected - both here and on the server.
    =========================================================== */
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
-import { Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Check, Crown, Pencil, Plus, RefreshCw, Search, Trash2, TrendingUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -43,7 +46,7 @@ import {
 import { AuthDialog } from "@/components/auth-dialog";
 import { EmptyState, PageShell } from "@/components/misc";
 import { useAuth } from "@/components/providers";
-import { T, useT, type StringKey } from "@/lib/i18n/t";
+import { T, useT, type StringKey, type Vars } from "@/lib/i18n/t";
 import { checkServerStatus, type ServerStatus } from "@/lib/client/sync";
 import { createUser, deleteUser, listUsers, updateUser } from "@/lib/client/auth-client";
 import { fmtDate } from "@/lib/client/util";
@@ -59,6 +62,7 @@ interface FormState {
   role: "user" | "admin";
   canAddQuestions: boolean;
   verified: boolean;
+  unlimited: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -70,6 +74,7 @@ const EMPTY_FORM: FormState = {
   role: "user",
   canAddQuestions: false,
   verified: true,
+  unlimited: false,
 };
 
 /** Small labelled control wrapper for the dialog form. */
@@ -115,6 +120,7 @@ function UserFormDialog({
             role: user.role === "admin" ? "admin" : "user",
             canAddQuestions: Boolean(user.canAddQuestions),
             verified: Boolean(user.verified),
+            unlimited: Boolean(user.unlimited),
           }
         : { ...EMPTY_FORM }
     );
@@ -224,6 +230,15 @@ function UserFormDialog({
             />
             {t("users.sw.verified")}
           </label>
+          {user ? (
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox
+                checked={form.unlimited}
+                onCheckedChange={(v) => set("unlimited", v === true)}
+              />
+              {t("users.sw.unlimited")}
+            </label>
+          ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
               {t("users.form.cancel")}
@@ -245,6 +260,203 @@ function joinedOf(u: PublicUser): string {
   return Number.isNaN(ts) ? "—" : fmtDate(ts);
 }
 
+/** Which slice of the roster the list tab shows. */
+type UserFilter = "all" | "pending" | "subscribers";
+
+/** When the paid plan ends; 0 means "no live subscription". */
+function expiryOf(u: PublicUser): number {
+  const ts = u.subscriptionExpiresAt ? Date.parse(u.subscriptionExpiresAt) : 0;
+  return Number.isFinite(ts) && ts > Date.now() ? ts : 0;
+}
+
+/** Does the account have a payment an admin still has to decide? */
+function paymentPending(u: PublicUser): boolean {
+  return u.payment?.status === "pending";
+}
+
+/** Does the account enjoy full access right now (admin grant or paid plan)? */
+function hasPaidAccess(u: PublicUser): boolean {
+  return Boolean(u.unlimited) || expiryOf(u) > 0;
+}
+
+/** Plan badge: admin grant beats a live subscription, which beats the free quota. */
+function planBadgeOf(u: PublicUser): {
+  key: StringKey;
+  vars?: Vars;
+  tone: "default" | "secondary" | "outline";
+} {
+  if (u.unlimited) return { key: "users.plan.unlimited", tone: "default" };
+  const until = expiryOf(u);
+  if (until) return { key: "users.plan.full", vars: { date: fmtDate(until) }, tone: "secondary" };
+  return { key: "users.plan.free", tone: "outline" };
+}
+
+/** Short label of a decided payment ("Approved" / "Rejected - submit again"). */
+function paymentDecisionKey(status: "approved" | "rejected"): StringKey {
+  return status === "approved" ? "sub.approved" : "sub.rejected";
+}
+
+/**
+ * One roster row: identity + plan/payment controls + row actions.
+ * Kept as its own component so the wide table body stays readable.
+ */
+function PlanRow({
+  u,
+  self,
+  locked,
+  roleBadge,
+  onApprove,
+  onReject,
+  onUnlimited,
+  onEdit,
+  onDelete,
+}: {
+  u: PublicUser;
+  self: boolean;
+  locked: boolean;
+  roleBadge: StringKey;
+  onApprove: () => void;
+  onReject: () => void;
+  onUnlimited: (value: boolean) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useT();
+  const plan = planBadgeOf(u);
+  const pending = paymentPending(u);
+  return (
+    <TableRow key={u.id}>
+      <TableCell>
+        <div className="font-medium">{u.name || u.userId || u.email}</div>
+        <div className="text-xs text-muted-foreground">{u.userId}</div>
+      </TableCell>
+      <TableCell>
+        <div className="text-sm">{u.email || u.phone || "—"}</div>
+        {u.email && u.phone ? (
+          <div className="text-xs text-muted-foreground">{u.phone}</div>
+        ) : null}
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-wrap gap-1">
+          <Badge
+            variant={
+              u.role === "admin" ? "default" : u.canAddQuestions ? "secondary" : "outline"
+            }
+          >
+            {t(roleBadge)}
+          </Badge>
+          {u.verified ? null : <Badge variant="destructive">{t("users.unverified")}</Badge>}
+        </div>
+      </TableCell>
+      {/* -------- plan / subscription -------- */}
+      <TableCell>
+        <div className="flex min-w-45 flex-col items-start gap-1.5">
+          <Badge variant={plan.tone} className="gap-1">
+            {u.unlimited ? <Crown className="size-3.5" /> : null}
+            {t(plan.key, plan.vars)}
+          </Badge>
+          {pending ? (
+            <span className="text-xs font-medium text-amber-600 dark:text-amber-500">
+              <T k="users.plan.pending" />
+            </span>
+          ) : null}
+          <label
+            className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+            title={t("users.grantUnlimited")}
+          >
+            <Switch
+              size="sm"
+              checked={Boolean(u.unlimited)}
+              disabled={locked || self}
+              onCheckedChange={(v) => onUnlimited(v)}
+              aria-label={t("users.grantUnlimited")}
+            />
+            <T k="users.grantUnlimited" />
+          </label>
+          {pending && u.payment ? (
+            <span className="text-xs text-muted-foreground">
+              {t("users.payment.ref", { ref: u.payment.reference, method: u.payment.method })}
+            </span>
+          ) : u.payment ? (
+            <span className="text-xs text-muted-foreground">
+              {t(paymentDecisionKey(u.payment.status === "approved" ? "approved" : "rejected"))}
+            </span>
+          ) : null}
+          {pending ? (
+            <span className="inline-flex gap-1">
+              <Button
+                size="xs"
+                onClick={onApprove}
+                disabled={locked}
+                aria-label={t("users.payment.approve")}
+                title={t("users.payment.approve")}
+              >
+                <Check /> {t("users.payment.approve")}
+              </Button>
+              <Button
+                size="xs"
+                variant="destructive"
+                onClick={onReject}
+                disabled={locked}
+                aria-label={t("users.payment.reject")}
+                title={t("users.payment.reject")}
+              >
+                <X /> {t("users.payment.reject")}
+              </Button>
+            </span>
+          ) : null}
+        </div>
+      </TableCell>
+      <TableCell className="text-sm whitespace-nowrap text-muted-foreground">
+        {joinedOf(u)}
+      </TableCell>
+      <TableCell className="text-right whitespace-nowrap">
+        {self ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : (
+          <span className="inline-flex gap-1">
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              asChild
+              aria-label={t("users.viewResults")}
+              title={t("users.viewResults")}
+              disabled={locked}
+            >
+              <Link href={`/progress?userId=${encodeURIComponent(u.id)}`}>
+                <TrendingUp />
+              </Link>
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={t("users.edit")}
+              title={t("users.edit")}
+              disabled={locked}
+              onClick={onEdit}
+            >
+              <Pencil />
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="text-destructive"
+              aria-label={t("users.delete")}
+              title={t("users.delete")}
+              disabled={locked}
+              onClick={onDelete}
+            >
+              <Trash2 />
+            </Button>
+          </span>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+
+
 export default function UsersPage() {
   const { ready, user: me, signedIn, isAdmin } = useAuth();
   const { t } = useT();
@@ -257,6 +469,9 @@ export default function UsersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<PublicUser | null>(null);
   const [deleting, setDeleting] = useState<PublicUser | null>(null);
+  const [rejecting, setRejecting] = useState<PublicUser | null>(null);
+  const [filter, setFilter] = useState<UserFilter>("all");
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
 
   const isSelf = useCallback((u: PublicUser) => Boolean(me && u.id === me.id), [me]);
 
@@ -283,13 +498,30 @@ export default function UsersPage() {
     void reload();
   }, [ready, isAdmin, reload]);
 
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) =>
-      [u.name, u.email, u.phone, u.userId].some((s) => String(s || "").toLowerCase().includes(q))
-    );
-  }, [users, query]);
+  const matchesQuery = useCallback(
+    (u: PublicUser) => {
+      const q = query.trim().toLowerCase();
+      if (!q) return true;
+      return [u.name, u.email, u.phone, u.userId].some((s) =>
+        String(s || "").toLowerCase().includes(q)
+      );
+    },
+    [query]
+  );
+
+  const pendingCount = useMemo(() => users.filter(paymentPending).length, [users]);
+  const subscriberCount = useMemo(() => users.filter(hasPaidAccess).length, [users]);
+
+  const shown = useMemo(
+    () =>
+      users.filter((u) => {
+        if (!matchesQuery(u)) return false;
+        if (filter === "pending") return paymentPending(u);
+        if (filter === "subscribers") return hasPaidAccess(u);
+        return true;
+      }),
+    [users, matchesQuery, filter]
+  );
 
   /* ---------------- CRUD handlers ---------------- */
 
@@ -344,6 +576,7 @@ export default function UsersPage() {
         role: form.role,
         verified: form.verified,
         canAddQuestions: form.canAddQuestions,
+        unlimited: form.unlimited,
         ...(form.password ? { password: form.password } : {}),
       });
       setUsers((list) => list.map((x) => (x.id === updated.id ? updated : x)));
@@ -368,6 +601,53 @@ export default function UsersPage() {
       toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /* ---------------- subscription / payment actions ---------------- */
+
+  /** Approve a pending payment (extends the plan by 30 days on the server). */
+  async function approvePayment(u: PublicUser) {
+    setRowBusy(u.id);
+    try {
+      const updated = await updateUser(u.id, { paymentDecision: "approved" });
+      setUsers((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+      toast.success(t("users.payment.approved"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  /** Second step of the reject button - the dialog asks for confirmation. */
+  async function confirmReject() {
+    if (!rejecting) return;
+    setRowBusy(rejecting.id);
+    try {
+      const updated = await updateUser(rejecting.id, { paymentDecision: "rejected" });
+      setUsers((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+      setRejecting(null);
+      toast.success(t("users.payment.rejected"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  /** Grant / revoke admin-side unlimited access from the row toggle. */
+  async function toggleUnlimited(u: PublicUser, value: boolean) {
+    setRowBusy(u.id);
+    try {
+      const updated = await updateUser(u.id, { unlimited: value });
+      setUsers((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+      if (editUser && editUser.id === updated.id) setEditUser(updated);
+      toast.success(t(value ? "users.unlimitedOn" : "users.unlimitedOff"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRowBusy(null);
     }
   }
 
@@ -468,7 +748,7 @@ export default function UsersPage() {
         </>
       }
     >
-      {/* ---------------- search + count ---------------- */}
+      {/* ---------------- search + filters ---------------- */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[220px] flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -479,8 +759,21 @@ export default function UsersPage() {
             className="pl-9"
           />
         </div>
-        <Badge variant="secondary">{t("users.count", { n: users.length })}</Badge>
+        <Badge variant="secondary">{t("users.count", { n: shown.length })}</Badge>
       </div>
+      <Tabs value={filter} onValueChange={(v) => setFilter(v as UserFilter)}>
+        <TabsList aria-label={t("users.title")} className="flex-wrap">
+          <TabsTrigger value="all">
+            <T k="users.filter.all" />
+          </TabsTrigger>
+          <TabsTrigger value="pending">
+            <T k="users.filter.pending" vars={{ n: pendingCount }} />
+          </TabsTrigger>
+          <TabsTrigger value="subscribers">
+            <T k="users.filter.subscribers" /> ({subscriberCount})
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* ---------------- roster ---------------- */}
       {!users.length ? (
@@ -503,72 +796,25 @@ export default function UsersPage() {
                 <TableHead>{t("users.th.user")}</TableHead>
                 <TableHead>{t("users.th.contact")}</TableHead>
                 <TableHead>{t("users.th.role")}</TableHead>
+                <TableHead>{t("users.th.plan")}</TableHead>
                 <TableHead>{t("users.th.joined")}</TableHead>
                 <TableHead className="text-right">{t("users.th.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {shown.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell>
-                    <div className="font-medium">{u.name || u.userId || u.email}</div>
-                    <div className="text-xs text-muted-foreground">{u.userId}</div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="text-sm">{u.email || u.phone || "—"}</div>
-                    {u.email && u.phone ? (
-                      <div className="text-xs text-muted-foreground">{u.phone}</div>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      <Badge
-                        variant={
-                          u.role === "admin"
-                            ? "default"
-                            : u.canAddQuestions
-                              ? "secondary"
-                              : "outline"
-                        }
-                      >
-                        {t(roleBadgeKey(u))}
-                      </Badge>
-                      {u.verified ? null : <Badge variant="destructive">{t("users.unverified")}</Badge>}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm whitespace-nowrap text-muted-foreground">
-                    {joinedOf(u)}
-                  </TableCell>
-                  <TableCell className="text-right whitespace-nowrap">
-                    {isSelf(u) ? (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    ) : (
-                      <span className="inline-flex gap-1">
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          aria-label={t("users.edit")}
-                          title={t("users.edit")}
-                          disabled={busy}
-                          onClick={() => setEditUser(u)}
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          className="text-destructive"
-                          aria-label={t("users.delete")}
-                          title={t("users.delete")}
-                          disabled={busy}
-                          onClick={() => setDeleting(u)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </span>
-                    )}
-                  </TableCell>
-                </TableRow>
+                <PlanRow
+                  key={u.id}
+                  u={u}
+                  self={isSelf(u)}
+                  locked={busy || rowBusy === u.id}
+                  roleBadge={roleBadgeKey(u)}
+                  onApprove={() => void approvePayment(u)}
+                  onReject={() => setRejecting(u)}
+                  onUnlimited={(v) => void toggleUnlimited(u, v)}
+                  onEdit={() => setEditUser(u)}
+                  onDelete={() => setDeleting(u)}
+                />
               ))}
             </TableBody>
           </Table>
@@ -615,6 +861,38 @@ export default function UsersPage() {
             </Button>
             <Button variant="destructive" onClick={() => void confirmDelete()} disabled={busy}>
               {t("users.delete")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Confirm before discarding a student's payment request. */}
+      <Dialog
+        open={Boolean(rejecting)}
+        onOpenChange={(v) => {
+          if (!v) setRejecting(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("users.payment.reject")}</DialogTitle>
+            <DialogDescription>
+              <T k="users.confirmReject" />
+            </DialogDescription>
+          </DialogHeader>
+          {rejecting?.payment ? (
+            <p className="text-sm text-muted-foreground">
+              {t("users.payment.ref", {
+                ref: rejecting.payment.reference,
+                method: rejecting.payment.method,
+              })}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejecting(null)} disabled={rowBusy !== null}>
+              {t("users.form.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={() => void confirmReject()} disabled={rowBusy !== null}>
+              {t("users.payment.reject")}
             </Button>
           </DialogFooter>
         </DialogContent>

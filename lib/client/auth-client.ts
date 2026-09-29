@@ -3,7 +3,7 @@
    Port of js/auth.js. All calls go through the single
    POST /api/auth { action } dispatch endpoint.
    =========================================================== */
-import type { AuthSession, PublicUser } from "@/lib/types";
+import type { AccessStatus, AuthSession, PublicUser } from "@/lib/types";
 import { getAuthSession, getAuthUser, setAuthSession } from "./store";
 import { getApiBase, type SyncError } from "./sync";
 
@@ -109,18 +109,65 @@ export function isAdmin(): boolean {
   return Boolean(u && u.role === "admin");
 }
 
-/** May the user add questions? Admins always; students only when allowed. */
+/** Unlimited access: an admin, an admin `unlimited` grant, or a live subscription. */
+export function hasFullAccess(user: PublicUser | null = getCurrentUser()): boolean {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  if (user.unlimited) return true;
+  const ts = user.subscriptionExpiresAt ? Date.parse(user.subscriptionExpiresAt) : 0;
+  return Number.isFinite(ts) && ts > Date.now();
+}
+
+/** May the user add questions? Admins/contributors always; subscribers too. */
 export function canAddQuestions(): boolean {
   const u = getCurrentUser();
-  return Boolean(u && (u.role === "admin" || u.canAddQuestions));
+  if (!u) return false;
+  return u.role === "admin" || u.canAddQuestions || hasFullAccess(u);
 }
 
 /** Human readable role label for the profile page / header chip. */
 export function roleLabel(user: PublicUser | null = getCurrentUser()): string {
   if (!user) return "Guest";
   if (user.role === "admin") return "Admin";
+  if (hasFullAccess(user)) return "Subscriber";
   if (user.canAddQuestions) return "Contributor";
   return "Student";
+}
+
+/** GET /api/access - the account's plan, quota usage and payment state. */
+export async function fetchAccess(): Promise<AccessStatus | null> {
+  const session = getAuthSession();
+  if (!session || !session.token) return null;
+  try {
+    const res = await fetch(getApiBase() + "/access", {
+      headers: { Authorization: "Bearer " + session.token },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as AccessStatus;
+  } catch {
+    return null;
+  }
+}
+
+/** POST /api/access - submit a payment reference for admin approval. */
+export async function submitPayment(input: {
+  reference: string;
+  method: string;
+}): Promise<AccessStatus> {
+  const session = getAuthSession();
+  if (!session || !session.token) throw new Error("Please log in first");
+  const res = await fetch(getApiBase() + "/access", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + session.token,
+    },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Could not submit the payment");
+  return data as AccessStatus;
 }
 /** Update the signed-in user's own details. */
 export async function updateProfile(patch: Record<string, unknown>) {
@@ -179,6 +226,10 @@ export interface UserPatch {
   role?: string;
   verified?: boolean;
   canAddQuestions?: boolean;
+  /** Admin grant: unlimited tests + uploads, never expires. */
+  unlimited?: boolean;
+  /** Decide the pending payment: 'approved' extends by 30 days. */
+  paymentDecision?: "approved" | "rejected";
   classLevel?: string;
   city?: string;
   school?: string;

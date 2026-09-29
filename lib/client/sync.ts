@@ -17,11 +17,25 @@ export interface ServerStatus {
   mongo: boolean;
 }
 
+/** POST /api/questions - what a bulk upload came back with. */
+export interface PushResult {
+  ok?: boolean;
+  upserted?: number;
+  modified?: number;
+  total?: number;
+  /** Rows that belong to another user, so they were left alone. */
+  skipped?: string[];
+  /** Rows the server refused, with the same messages the preview gives. */
+  invalid?: { index: number; id: string; errors: string[] }[];
+}
+
 export interface SyncError extends Error {
   status?: number;
   needsVerification?: boolean;
   target?: string;
   devOtp?: string;
+  /** 403 from the free-tier quota: subscribe before saving more tests. */
+  needsSubscription?: boolean;
 }
 
 /**
@@ -60,9 +74,11 @@ function headers(json = true): Record<string, string> {
 /** Turn a failed response into an Error that carries the HTTP status. */
 async function errorFrom(res: Response, fallback: string): Promise<SyncError> {
   let msg = fallback || "Server error " + res.status;
+  let needsSubscription = false;
   try {
     const data = await res.json();
     if (data && data.error) msg = data.error;
+    if (data && data.needsSubscription) needsSubscription = true;
     if (data && data.needsVerification) {
       const err = new Error(msg) as SyncError;
       err.status = res.status;
@@ -76,12 +92,15 @@ async function errorFrom(res: Response, fallback: string): Promise<SyncError> {
   }
   const err = new Error(msg) as SyncError;
   err.status = res.status;
+  if (needsSubscription) err.needsSubscription = true;
   return err;
 }
 
 /**
  * Send an attempt to the backend. If offline, queue it in localStorage
- * for auto-retry (flushed on 'online' and on boot).
+ * for auto-retry (flushed on 'online' and on boot). A free-tier refusal
+ * is NOT queued - retrying would fail forever until the plan changes -
+ * so the caller gets the message and can send the user to subscribe.
  */
 export async function syncAttempt(attempt: Attempt) {
   const s = getSettings();
@@ -97,6 +116,10 @@ export async function syncAttempt(attempt: Attempt) {
       body: JSON.stringify(payload),
     });
     if (res.ok) return { ok: true, synced: true };
+    if (res.status === 403) {
+      const err = await errorFrom(res, "Could not save the result");
+      return { ok: false, synced: false, blocked: true, error: err.message };
+    }
   } catch {
     /* network failure -> queue below */
   }
@@ -105,14 +128,19 @@ export async function syncAttempt(attempt: Attempt) {
     queue.push(payload);
     setSyncQueue(queue);
   }
-  return { ok: true, synced: false, queued: true };
+  return { ok: true, synced: false, queued: true, blocked: false };
 }
 
-/** Retry every queued attempt. */
+/**
+ * Retry every queued attempt. A free-tier refusal drops the item from
+ * the queue instead of retrying it forever; the local copy on the
+ * device is always kept, so nothing is lost.
+ */
 export async function flushQueue() {
   const queue = getSyncQueue();
-  if (!queue.length) return { flushed: 0, remaining: 0 };
+  if (!queue.length) return { flushed: 0, remaining: 0, blocked: 0 };
   const remaining: Attempt[] = [];
+  let blocked = 0;
   for (const item of queue) {
     try {
       const res = await fetch(getApiBase() + "/attempts", {
@@ -120,13 +148,20 @@ export async function flushQueue() {
         headers: headers(),
         body: JSON.stringify(item),
       });
-      if (!res.ok) remaining.push(item);
+      if (!res.ok) {
+        if (res.status === 403) blocked++;
+        else remaining.push(item);
+      }
     } catch {
       remaining.push(item);
     }
   }
   setSyncQueue(remaining);
-  return { flushed: queue.length - remaining.length, remaining: remaining.length };
+  return {
+    flushed: queue.length - remaining.length - blocked,
+    remaining: remaining.length,
+    blocked,
+  };
 }
 
 /** Shared question bank - null when the server is unreachable. */
@@ -156,14 +191,14 @@ export async function fetchQuestions(
  * Upsert questions to the shared bank (single or bulk).
  * Admins may write anything; permitted students only their own.
  */
-export async function pushQuestions(list: Question | Question[]) {
+export async function pushQuestions(list: Question | Question[]): Promise<PushResult> {
   const res = await fetch(getApiBase() + "/questions", {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(Array.isArray(list) ? list : [list]),
   });
   if (!res.ok) throw await errorFrom(res, "Could not save questions to the server");
-  return await res.json();
+  return (await res.json()) as PushResult;
 }
 
 /** Delete one question from the shared bank. */
@@ -174,6 +209,84 @@ export async function deleteQuestion(id: string) {
   });
   if (!res.ok) throw await errorFrom(res, "Could not delete the question on the server");
   return await res.json();
+}
+
+/** Edit one shared question (PATCH /api/questions/:id). */
+export async function updateServerQuestion(id: string, patch: Record<string, unknown>) {
+  const res = await fetch(getApiBase() + "/questions/" + encodeURIComponent(id), {
+    method: "PATCH",
+    headers: headers(),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw await errorFrom(res, "Could not update the question");
+  return await res.json();
+}
+
+/**
+ * Cascade-rename a subject on the shared bank. Returns how many
+ * questions the server moved. Admin only.
+ */
+export async function renameSubjectQuestions(from: string, to: string, topic?: string) {
+  const params = new URLSearchParams({ from, to });
+  if (topic) params.set("topic", topic);
+  const res = await fetch(getApiBase() + "/questions/rename-subject?" + params.toString(), {
+    method: "PATCH",
+    headers: headers(false),
+  });
+  if (!res.ok) throw await errorFrom(res, "Could not rename the subject's questions");
+  return (await res.json()) as { ok: boolean; modified: number };
+}
+
+/**
+ * Cascade-rename a topic inside a subject on the shared bank.
+ * Returns how many questions the server moved. Admin only.
+ */
+export async function renameTopicQuestions(subject: string, from: string, to: string) {
+  const params = new URLSearchParams({ subject, from, to });
+  const res = await fetch(getApiBase() + "/questions/rename-topic?" + params.toString(), {
+    method: "PATCH",
+    headers: headers(false),
+  });
+  if (!res.ok) throw await errorFrom(res, "Could not rename the topic's questions");
+  return (await res.json()) as { ok: boolean; modified: number };
+}
+
+/**
+ * How many shared questions belong to a subject (optionally one topic).
+ * Used to tell the admin what a delete would remove. Admin only.
+ */
+export async function countSubjectQuestions(subject: string, topic?: string) {
+  const params = new URLSearchParams({ subject });
+  if (topic) params.set("topic", topic);
+  const res = await fetch(getApiBase() + "/questions/by-subject?" + params.toString(), {
+    headers: headers(false),
+    cache: "no-store",
+  });
+  if (!res.ok) throw await errorFrom(res, "Could not count the subject's questions");
+  return (await res.json()) as { ok: boolean; count: number };
+}
+
+/**
+ * Cascade-delete a subject (optionally one topic) from the shared bank.
+ * `move` re-files the questions under another name instead of deleting
+ * them. Returns how many questions the server touched. Admin only.
+ */
+export async function deleteSubjectQuestions(
+  subject: string,
+  opts: { topic?: string; mode?: "delete" | "move"; moveTo?: string } = {}
+) {
+  const params = new URLSearchParams({ subject });
+  if (opts.topic) params.set("topic", opts.topic);
+  if (opts.mode === "move" && opts.moveTo) {
+    params.set("mode", "move");
+    params.set("moveTo", opts.moveTo);
+  }
+  const res = await fetch(getApiBase() + "/questions/by-subject?" + params.toString(), {
+    method: "DELETE",
+    headers: headers(false),
+  });
+  if (!res.ok) throw await errorFrom(res, "Could not delete the subject's questions");
+  return (await res.json()) as { ok: boolean; count: number; moved?: number };
 }
 
 /* ---------------- attempts (results) ---------------- */
