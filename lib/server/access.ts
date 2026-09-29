@@ -2,13 +2,26 @@
    server/access.ts - the plan / quota rules for the app
 
    FREE accounts get a one-off quota of saved tests; an active
-   subscription (or an admin grant) removes it. Kept as tiny pure
-   functions + one counter so the attempt guard, the question
-   editor guard and the /api/access endpoint all agree.
+   subscription (or an admin grant) removes it. Signed-out devices
+   get a smaller quota of their own, so the app cannot be used as
+   an endless free test bank. Kept as tiny pure functions + a
+   couple of counters so the attempt guard, the question editor
+   guard and the /api/access endpoint all agree.
    =========================================================== */
+import { FREE_TEST_LIMIT, GUEST_TEST_LIMIT as GUEST_TEST_DEFAULT } from "@/lib/data/limits";
 
-/** Tests a signed-in account may save before a subscription is needed. */
-export const FREE_TEST_LIMIT = 5;
+export { FREE_TEST_LIMIT };
+
+/**
+ * Saved tests a signed-out device may keep before an account is
+ * needed. Tunable with the GUEST_TEST_LIMIT environment variable;
+ * the constant in lib/data/limits.ts is the default the UI shows.
+ */
+export const GUEST_TEST_LIMIT = ((): number => {
+  const raw = Number(process.env.GUEST_TEST_LIMIT);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : GUEST_TEST_DEFAULT;
+})();
+
 /** What an approved payment buys, in days. */
 export const SUBSCRIPTION_DAYS = 30;
 
@@ -42,6 +55,18 @@ export function isQuotaExempt(u: AccessUser & { role?: string; canAddQuestions?:
 export async function countAttempts(userId: string): Promise<number> {
   const { Attempt } = await import("./models");
   return Attempt.countDocuments({ userId });
+}
+
+/**
+ * Saved attempts of one signed-out device, matched by the device id
+ * the client stores locally. This is what stops a guest from taking
+ * an endless run of tests just because nobody is logged in.
+ */
+export async function countGuestAttempts(deviceId: string): Promise<number> {
+  const id = String(deviceId || "").trim();
+  if (!id) return 0;
+  const { Attempt } = await import("./models");
+  return Attempt.countDocuments({ userId: "", deviceId: id });
 }
 
 /** Approval adds SUBSCRIPTION_DAYS to whatever is left of the old plan. */

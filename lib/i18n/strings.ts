@@ -193,6 +193,16 @@ export const STRINGS = {
     hi: "निःशुल्क टेस्ट समाप्त - आगे टेस्ट देने के लिए सदस्यता लें या एडमिन से पूर्ण पहुँच माँगें।",
     en: "Free tests used up - subscribe or ask the admin for full access to keep testing.",
   },
+  "sub.planGuest": { hi: "बिना लॉगिन", en: "Not signed in" },
+  "sub.guestUsed": {
+    hi: "इस डिवाइस पर {used} / {free} निःशुल्क टेस्ट उपयोग",
+    en: "{used} of {free} free tests used on this device",
+  },
+  "sub.guestGate": {
+    hi: "इस डिवाइस के निःशुल्क टेस्ट समाप्त - आगे टेस्ट देने के लिए निःशुल्क खाते से साइन इन करें।",
+    en: "Free tests on this device are used up - sign in with a free account to keep testing.",
+  },
+  "sub.signIn": { hi: "निःशुल्क साइन इन", en: "Sign in free" },
   "sub.viewPlan": { hi: "मेरी सदस्यता देखें", en: "View my subscription" },
   "users.plan.free": { hi: "निःशुल्क", en: "Free" },
   "users.plan.full": { hi: "पूर्ण ({date})", en: "Full ({date})" },

@@ -89,6 +89,8 @@ export interface WeakTopicRow {
 export interface Attempt {
   id: string;
   userId?: string;
+  /** Signed-out devices send a local id so their quota can be counted. */
+  deviceId?: string;
   student?: string;
   at: number;
   finishedAt?: number;

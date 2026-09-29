@@ -26,10 +26,12 @@ import { useT, type StringKey } from "@/lib/i18n/t";
 import { getAllWithServer, LETTERS as DATA_LETTERS } from "@/lib/data/normalize";
 import {
   addAttempt,
+  getAttempts as getLocalAttempts,
   getSettings,
   saveSettings as persistSettings,
 } from "@/lib/client/store";
 import { syncAttempt } from "@/lib/client/sync";
+import { GUEST_TEST_LIMIT } from "@/lib/data/limits";
 import { fmtTime, pick, shuffle, uid } from "@/lib/client/util";
 import { canAddQuestions, fetchAccess } from "@/lib/client/auth-client";
 import { useAuth, useSettings } from "@/components/providers";
@@ -204,6 +206,16 @@ function TestInner() {
 
   const quotaBlocked = Boolean(signedIn && access && !access.fullAccess && access.testsRemaining <= 0);
 
+  // Signed-out devices get a smaller quota of their own: counted on this
+  // device and enforced by the server against the same device id, so a
+  // guest cannot take an endless run of tests without an account.
+  const guestUsed = useMemo(
+    () => (ready && !signedIn ? getLocalAttempts().length : 0),
+    [ready, signedIn]
+  );
+  const guestBlocked = guestUsed >= GUEST_TEST_LIMIT;
+  const blocked = quotaBlocked || guestBlocked;
+
   const allTopics = useMemo(() => {
     const list = (bank || [])
       .filter((q) => !subjects.length || subjects.includes(q.subject))
@@ -278,9 +290,9 @@ function TestInner() {
 
   function startFromForm() {
     if (!bank) return;
-    // Free tier: block starting once the five saved tests are used up.
-    if (quotaBlocked) {
-      toast.error(t("sub.testGate"));
+    // Quota: a free account or a signed-out device both hit a ceiling.
+    if (blocked) {
+      toast.error(guestBlocked ? t("sub.guestGate") : t("sub.testGate"));
       return;
     }
     const pool = bank.filter(
@@ -406,7 +418,11 @@ function TestInner() {
       };
 
       addAttempt(attempt);
-      void syncAttempt(attempt);
+      // A refused save (guest or free-tier quota) says so instead of
+      // staying silent - the local copy is kept either way.
+      void syncAttempt(attempt).then((r) => {
+        if (r && "blocked" in r && r.blocked && r.error) toast.warning(r.error);
+      });
       saveRun(null);
       router.push(`/result/${attempt.id}`);
     },
@@ -446,6 +462,31 @@ function TestInner() {
   if (!run) {
     return (
       <PageShell title={t("test.title")} description={t("test.desc")}>
+        {/* Signed-out devices see how many free tests this device has left,
+            and a locked-out one gets the sign-in call to action. */}
+        {ready && !signedIn ? (
+          <Card
+            className={
+              guestBlocked ? "mb-4 border-destructive/40 bg-destructive/5" : "mb-4"
+            }
+          >
+            <CardContent className="flex flex-wrap items-center gap-2 p-4 text-sm">
+              <Badge variant={guestBlocked ? "destructive" : "secondary"}>
+                {t("sub.planGuest")}
+              </Badge>
+              <span className={guestBlocked ? "text-destructive" : "text-muted-foreground"}>
+                {guestBlocked
+                  ? t("sub.guestGate")
+                  : t("sub.guestUsed", { used: guestUsed, free: GUEST_TEST_LIMIT })}
+              </span>
+              <Button size="sm" className="ml-auto" asChild>
+                <Link href="/profile">
+                  <Crown /> {t("sub.signIn")}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
         {/* Free-tier banner: signed-in accounts see the remaining tests,
             and a locked-out account gets the subscribe call to action. */}
         {signedIn && access ? (

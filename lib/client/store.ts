@@ -4,6 +4,7 @@
    classic site keeps its bank, results, cards and settings.
    =========================================================== */
 import type { Attempt, AuthSession, PublicUser, Question, Settings } from "@/lib/types";
+import { uid } from "./util";
 
 const K = {
   questions: "stp.questions",
@@ -171,6 +172,21 @@ export function clearUserQuestions() {
 
 export const getHidden = (): string[] => read<string[]>(K.hidden, []);
 export const setHidden = (ids: string[]) => write(K.hidden, ids || []);
+
+/**
+ * A stable id for this browser, generated once and kept in localStorage.
+ * Signed-out devices send it with their attempts, which is how the server
+ * can count "tests on this device" without an account to count against.
+ * Clearing site data resets it - the same as forgetting the device.
+ */
+export function getDeviceId(): string {
+  const key = "stp.device";
+  const existing = read<string>(key, "");
+  if (existing) return existing;
+  const id = uid("d");
+  write(key, id);
+  return id;
+}
 /* ---------------- attempts (results) ---------------- */
 
 /**
