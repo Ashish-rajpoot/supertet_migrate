@@ -6,6 +6,7 @@
    =========================================================== */
 import crypto from "node:crypto";
 import { connectDb } from "./db";
+import { hasFullAccess } from "./access";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supertet-secret-key-change-in-prod-123!";
 
@@ -145,8 +146,10 @@ export async function requireAdmin(req: Request): Promise<AuthContext | Response
 }
 
 /**
- * Guard for question editors: an admin, or a student the admin
- * explicitly allowed with `canAddQuestions` (Express requireQuestionEditor).
+ * Guard for question editors: an admin, a student the admin
+ * explicitly allowed with `canAddQuestions`, or an active
+ * subscriber (`unlimited` grant / unexpired subscription).
+ * Express requireQuestionEditor + the subscription tier.
  */
 export async function requireQuestionEditor(req: Request): Promise<AuthContext | Response> {
   const payload = getAuthPayload(req);
@@ -160,10 +163,16 @@ export async function requireQuestionEditor(req: Request): Promise<AuthContext |
     if (!dbUser) {
       return Response.json({ error: "Your account no longer exists" }, { status: 401 });
     }
-    const allowed = dbUser.role === "admin" || dbUser.canAddQuestions === true;
+    const allowed =
+      dbUser.role === "admin" ||
+      dbUser.canAddQuestions === true ||
+      hasFullAccess(dbUser);
     if (!allowed) {
       return Response.json(
-        { error: "You do not have permission to add questions. Ask the admin to allow you." },
+        {
+          error:
+            "You do not have permission to add questions. Ask the admin, or subscribe for full access.",
+        },
         { status: 403 }
       );
     }

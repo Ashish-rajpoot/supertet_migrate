@@ -126,6 +126,30 @@ export interface SyllabusSubject {
   updatedAt?: string;
 }
 
+/** One payment request as the API serialises it. */
+export interface PaymentRequest {
+  reference: string;
+  method: string;
+  status: "pending" | "approved" | "rejected";
+  submittedAt?: string;
+  decidedAt?: string;
+}
+
+/**
+ * GET /api/access - what the plan looks like right now.
+ * testsRemaining counts saved (cloud) attempts of a signed-in account.
+ */
+export interface AccessStatus {
+  fullAccess: boolean;
+  unlimited: boolean;
+  subscriptionExpiresAt: string;
+  testsUsed: number;
+  testsFree: number;
+  testsRemaining: number;
+  canUpload: boolean;
+  payment: PaymentRequest | null;
+}
+
 /** The user object the API returns - never carries passwordHash / salt. */
 export interface PublicUser {
   id: string;
@@ -137,6 +161,12 @@ export interface PublicUser {
   verified: boolean;
   role: "user" | "admin";
   canAddQuestions: boolean;
+  /** Admin grant: unlimited access, never expires. */
+  unlimited?: boolean;
+  /** ISO date; empty when the account has no paid subscription. */
+  subscriptionExpiresAt?: string;
+  /** Latest payment request, or null when never submitted. */
+  payment?: PaymentRequest | null;
   classLevel: string;
   city: string;
   school: string;

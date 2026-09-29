@@ -43,6 +43,21 @@ export function toPublicUser(u: UserDoc) {
     city: u.city,
     school: u.school,
     about: u.about,
+    unlimited: Boolean(u.unlimited),
+    subscriptionExpiresAt: u.subscriptionExpiresAt
+      ? new Date(u.subscriptionExpiresAt).toISOString()
+      : "",
+    payment: u.payment?.reference
+      ? {
+          reference: u.payment.reference,
+          method: u.payment.method,
+          status: u.payment.status,
+          submittedAt: u.payment.submittedAt
+            ? new Date(u.payment.submittedAt).toISOString()
+            : "",
+          decidedAt: u.payment.decidedAt ? new Date(u.payment.decidedAt).toISOString() : "",
+        }
+      : null,
     createdAt: u.createdAt ? new Date(u.createdAt).toISOString() : undefined,
   };
 }

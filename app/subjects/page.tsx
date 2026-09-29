@@ -22,18 +22,31 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { AuthDialog } from "@/components/auth-dialog";
+import { DeleteScopeDialog, type DeleteChoice } from "@/components/delete-scope-dialog";
 import { NameLabel, PageShell, SectionCard } from "@/components/misc";
 import { useAuth, useLang } from "@/components/providers";
 import {
   addTopic,
   checkServerStatus,
+  countSubjectQuestions,
   deleteSubject,
   deleteTopic,
   fetchSubjects,
+  renameSubjectQuestions,
+  renameTopicQuestions,
   saveSubject,
   updateSubject,
   updateTopic,
 } from "@/lib/client/sync";
+import { countQuestionsOnDevice, renameSubjectOnDevice, renameTopicOnDevice } from "@/lib/client/store";
+import {
+  applyScopeToQuestions,
+  sweepRowsLocally,
+  type Scope,
+  type ScopeChoice,
+} from "@/lib/client/question-crud";
+import { getAllWithServer } from "@/lib/data/normalize";
+import { invalidateSyllabus } from "@/lib/data/labels";
 import type { SyllabusSubject, SyllabusTopic } from "@/lib/types";
 
 /** Load the syllabus: the server copy, else the bundled JSON file. */
@@ -86,6 +99,16 @@ export default function SubjectsPage() {
   const [newName, setNewName] = useState("");
   const [newNameHi, setNewNameHi] = useState("");
 
+  // A delete whose "what about the questions?" answer is still pending.
+  const [pendingDelete, setPendingDelete] = useState<{
+    subject: SyllabusSubject;
+    topic?: SyllabusTopic;
+    /** Questions in the shared bank that point at this entry. */
+    count: number;
+    /** Questions on this device that point at this entry. */
+    deviceCount: number;
+  } | null>(null);
+
   // Editing needs both an admin account and a reachable database.
   const canEdit = isAdmin && onServer;
 
@@ -94,6 +117,9 @@ export default function SubjectsPage() {
     setSubjects(list);
     setOnServer(srv);
     setLoading(false);
+    // Pickers and Hindi labels elsewhere keep a cached copy of the
+    // syllabus, so a rename or delete has to clear it to be visible.
+    invalidateSyllabus();
   }, []);
 
   useEffect(() => {
@@ -126,12 +152,31 @@ export default function SubjectsPage() {
     });
   }
 
+  /* -------- rename: the questions keep up with the new name -------- */
+
   async function renameSubject(s: SyllabusSubject, name: string, nameHi: string) {
-    if (!name.trim()) return;
+    const next = name.trim();
+    if (!next) return;
+    const moved = next !== s.name;
     await run(async () => {
-      await updateSubject(s.id, { name: name.trim(), nameHi: nameHi.trim() });
+      await updateSubject(s.id, { name: next, nameHi: nameHi.trim() });
+      // Questions point at subjects by name, so a rename has to move them
+      // too - otherwise the whole subject's bank is orphaned.
+      if (moved) {
+        if (onServer) {
+          try {
+            await renameSubjectQuestions(s.name, next);
+          } catch (err) {
+            toast.warning(
+              "The subject was renamed, but its shared questions stayed behind: " +
+                (err instanceof Error ? err.message : "unknown error")
+            );
+          }
+        }
+        renameSubjectOnDevice(s.name, next);
+      }
       setEditSubject(null);
-      toast.success("Subject updated");
+      toast.success(moved ? "Subject renamed and its questions moved" : "Subject updated");
       await reload();
     });
   }
@@ -145,38 +190,93 @@ export default function SubjectsPage() {
     });
   }
 
-  async function renameTopic(sId: string, tId: string, name: string, nameHi: string) {
-    if (!name.trim()) return;
+  async function renameTopic(s: SyllabusSubject, tId: string, name: string, nameHi: string) {
+    const next = name.trim();
+    if (!next) return;
+    const current = (s.topics || []).find((t) => t.id === tId);
+    const moved = Boolean(current && current.name !== next);
     await run(async () => {
-      await updateTopic(sId, tId, { name: name.trim(), nameHi: nameHi.trim() });
+      await updateTopic(s.id, tId, { name: next, nameHi: nameHi.trim() });
+      if (moved && current) {
+        if (onServer) {
+          try {
+            await renameTopicQuestions(s.name, current.name, next);
+          } catch (err) {
+            toast.warning(
+              "The topic was renamed, but its shared questions stayed behind: " +
+                (err instanceof Error ? err.message : "unknown error")
+            );
+          }
+        }
+        renameTopicOnDevice(s.name, current.name, next);
+      }
       setEditTopic(null);
-      toast.success("Topic updated");
+      toast.success(moved ? "Topic renamed and its questions moved" : "Topic updated");
       await reload();
     });
   }
 
-  async function removeSubject(s: SyllabusSubject) {
-    const n = (s.topics || []).length;
-    if (
-      !confirm(
-        `Delete "${s.name}"` + (n ? ` and its ${n} topic(s)` : "") + "? This cannot be undone."
-      )
-    )
+  /* -------- delete: ask what should happen to the questions -------- */
+
+  /** Open the scope dialog, first counting what a delete would take. */
+  async function askDelete(s: SyllabusSubject, topic?: SyllabusTopic) {
+    if (busy) return;
+    setBusy(true);
+    let count = 0;
+    try {
+      if (onServer) count = (await countSubjectQuestions(s.name, topic?.name)).count;
+    } catch {
+      count = 0;
+    } finally {
+      setBusy(false);
+    }
+    setPendingDelete({
+      subject: s,
+      topic,
+      count,
+      deviceCount: countQuestionsOnDevice(s.name, topic?.name),
+    });
+  }
+
+  async function confirmDelete(choice: DeleteChoice) {
+    const p = pendingDelete;
+    if (!p) return;
+    const s = p.subject;
+    const topic = p.topic;
+    const moveTo = choice.mode === "move" ? String(choice.moveTo || "").trim() : "";
+    if (choice.mode === "move" && !moveTo) {
+      toast.error("Type the name you want the questions moved to");
       return;
+    }
     await run(async () => {
-      await deleteSubject(s.id);
+      let touched = 0;
+      // Deal with the questions first: if that fails the entry stays,
+      // so the bank can never end up pointing at a subject that is gone.
+      if (choice.mode !== "keep") {
+        const scope: Scope = { subject: s.name, topic: topic?.name };
+        const decision: ScopeChoice = { mode: choice.mode, moveTo };
+        const res = await applyScopeToQuestions(scope, decision, { server: onServer });
+        if (!res.ok) {
+          toast.error("Nothing was deleted - the questions could not be handled: " + res.error);
+          return;
+        }
+        // Bundled questions live in a read-only file that no cascade can
+        // reach, so they are taken out of this device's view the same way.
+        touched = res.touched + sweepRowsLocally(await getAllWithServer(), scope, decision);
+      }
+      if (topic) await deleteTopic(s.id, topic.id);
+      else await deleteSubject(s.id);
+      setPendingDelete(null);
       setEditSubject(null);
-      toast.success("Subject deleted");
-      await reload();
-    });
-  }
-
-  async function removeTopic(sId: string, t: SyllabusTopic) {
-    if (!confirm(`Delete the topic "${t.name}"?`)) return;
-    await run(async () => {
-      await deleteTopic(sId, t.id);
       setEditTopic(null);
-      toast.success("Topic deleted");
+      toast.success(
+        (topic ? `Deleted the topic "${topic.name}"` : `Deleted the subject "${s.name}"`) +
+          (choice.mode === "keep"
+            ? ""
+            : touched
+              ? ` · ${touched} question(s) ${choice.mode === "move" ? "moved" : "deleted"}`
+              : "")
+      );
       await reload();
     });
   }
@@ -328,12 +428,12 @@ export default function SubjectsPage() {
               onStartEdit={() => setEditSubject(s.id)}
               onCancelEdit={() => setEditSubject(null)}
               onSaveEdit={(name, nameHi) => void renameSubject(s, name, nameHi)}
-              onDelete={() => void removeSubject(s)}
+              onDelete={() => void askDelete(s)}
               onAddTopic={(name, nameHi) => void addTopicTo(s, name, nameHi)}
               onStartTopicEdit={(tId) => setEditTopic({ s: s.id, t: tId })}
-              onSaveTopicEdit={(tId, name, nameHi) => void renameTopic(s.id, tId, name, nameHi)}
+              onSaveTopicEdit={(tId, name, nameHi) => void renameTopic(s, tId, name, nameHi)}
               onCancelTopicEdit={() => setEditTopic(null)}
-              onDeleteTopic={(t) => void removeTopic(s.id, t)}
+              onDeleteTopic={(t) => void askDelete(s, t)}
             />
           ))}
         </div>
@@ -346,6 +446,34 @@ export default function SubjectsPage() {
           </CardContent>
         </Card>
       )}
+
+      <DeleteScopeDialog
+        open={Boolean(pendingDelete)}
+        targetLabel={pendingDelete?.topic ? "topic" : "subject"}
+        title={
+          pendingDelete?.topic
+            ? `Delete the topic "${pendingDelete.topic.name}"?`
+            : `Delete the subject "${pendingDelete?.subject.name}"?`
+        }
+        description={
+          pendingDelete
+            ? (pendingDelete.topic
+                ? "Questions are matched to a topic by name, so decide what should happen to the ones already written."
+                : `Its ${(pendingDelete.subject.topics || []).length} topic(s) go with it, and the questions need a decision too.`)
+            : undefined
+        }
+        count={pendingDelete?.count ?? 0}
+        deviceCount={pendingDelete?.deviceCount ?? 0}
+        targets={subjects
+          .filter((x) => x.name !== pendingDelete?.subject.name)
+          .map((x) => x.name)}
+        busy={busy}
+        confirmLabel={pendingDelete?.topic ? "Delete topic" : "Delete subject"}
+        onOpenChange={(next) => {
+          if (!next && !busy) setPendingDelete(null);
+        }}
+        onConfirm={(choice) => void confirmDelete(choice)}
+      />
 
       <AuthDialog open={loginOpen} onOpenChange={setLoginOpen} initialTab="login" />
     </PageShell>

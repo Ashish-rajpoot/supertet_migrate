@@ -1,6 +1,7 @@
 import { Question } from "@/lib/server/models";
 import { requireAdmin, requireQuestionEditor } from "@/lib/server/auth";
 import { queryOf, readBody, requireDb } from "@/lib/server/api";
+import { sanitiseQuestion, validateQuestionList } from "@/lib/data/validate";
 
 export const dynamic = "force-dynamic";
 
@@ -53,10 +54,13 @@ export async function POST(req: Request) {
     if (!incoming.length) {
       return Response.json({ error: "No valid questions found to save" }, { status: 400 });
     }
+    // Wrong rows are reported per-row instead of silently dropping them,
+    // so a bad upload tells the uploader exactly what to fix.
+    const { valid, problems } = validateQuestionList(incoming);
 
     let owned = new Map<string, string>();
     if (!isAdmin) {
-      const ids = incoming.map((q) => String(q.id));
+      const ids = valid.map((q) => String((q as { id: unknown }).id));
       const existing = await Question.find({ id: { $in: ids } })
         .select("id createdBy")
         .lean();
@@ -66,7 +70,9 @@ export async function POST(req: Request) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ops: any[] = [];
     const skipped: string[] = [];
-    for (const q of incoming) {
+    for (const raw of valid) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const q = sanitiseQuestion(raw as Record<string, unknown>) as any;
       const id = String(q.id);
       if (!isAdmin) {
         const owner = owned.get(id);
@@ -100,15 +106,16 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
-    const result = await Question.bulkWrite(ops);
+    const result = ops.length ? await Question.bulkWrite(ops) : null;
     return Response.json(
       {
         ok: true,
-        upserted: result.upsertedCount,
-        modified: result.modifiedCount,
-        matched: result.matchedCount,
+        upserted: result?.upsertedCount ?? 0,
+        modified: result?.modifiedCount ?? 0,
+        matched: result?.matchedCount ?? 0,
         total: ops.length,
         skipped,
+        invalid: problems,
       },
       { status: 201 }
     );

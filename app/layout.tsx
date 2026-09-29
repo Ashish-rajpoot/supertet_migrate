@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { SiteHeader } from "@/components/site-header";
+import { OfflineBadge } from "@/components/offline-badge";
 import { SiteFooter } from "@/components/misc";
 import { AccessibilityDock } from "@/components/a11y-widget";
 import { BackToTop } from "@/components/back-to-top";
@@ -51,6 +52,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       >
         <Providers>
           <SiteHeader />
+          <OfflineBadge />
           <main className="flex-1">{children}</main>
           <SiteFooter />
           {/* Floating helpers, stacked in one column: back-to-top shows up

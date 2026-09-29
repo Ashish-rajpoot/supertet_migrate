@@ -1,6 +1,7 @@
 import { Attempt, User } from "@/lib/server/models";
 import { getAuthPayload, requireAuth } from "@/lib/server/auth";
 import { queryOf, readBody, requireDb } from "@/lib/server/api";
+import { FREE_TEST_LIMIT, isQuotaExempt } from "@/lib/server/access";
 
 export const dynamic = "force-dynamic";
 
@@ -82,8 +83,27 @@ export async function POST(req: Request) {
     }
     if (payload && payload.id) {
       data.userId = payload.id;
-      const account = await User.findOne({ id: payload.id }).select("name").lean();
+      const account = await User.findOne({ id: payload.id }).lean();
       if (account && account.name) data.student = account.name;
+      // Free-tier quota: a signed-in account may save FREE_TEST_LIMIT
+      // attempts before a subscription is needed. Saving an attempt that
+      // already exists (sync retry) never counts again, and admins /
+      // contributors / subscribers are exempt.
+      if (account && !isQuotaExempt(account)) {
+        const exists = await Attempt.exists({ id: data.id });
+        if (!exists) {
+          const used = await Attempt.countDocuments({ userId: payload.id });
+          if (used >= FREE_TEST_LIMIT) {
+            return Response.json(
+              {
+                error: `You have used all ${FREE_TEST_LIMIT} free tests. Subscribe to continue.`,
+                needsSubscription: true,
+              },
+              { status: 403 }
+            );
+          }
+        }
+      }
     } else if (!data.userId) {
       data.userId = "";
     }

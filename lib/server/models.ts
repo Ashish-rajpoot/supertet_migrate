@@ -20,6 +20,18 @@ export interface UserDoc {
   verified: boolean;
   role: "user" | "admin";
   canAddQuestions: boolean;
+  /** Admin grant: unlimited tests + uploads, never expires. */
+  unlimited: boolean;
+  /** End of the paid subscription, when one has been approved. */
+  subscriptionExpiresAt?: Date;
+  /** Latest payment request (pending / approved / rejected). */
+  payment?: {
+    reference: string;
+    method: string;
+    status: "pending" | "approved" | "rejected";
+    submittedAt: Date;
+    decidedAt?: Date;
+  };
   classLevel: string;
   city: string;
   school: string;
@@ -28,6 +40,18 @@ export interface UserDoc {
   updatedAt?: Date;
 }
 export type UserDocument = HydratedDocument<UserDoc>;
+
+/** One payment request - only the latest one is kept per account. */
+const paymentSchema = new mongoose.Schema(
+  {
+    reference: { type: String, default: "" },
+    method: { type: String, default: "" },
+    status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+    submittedAt: { type: Date, default: () => new Date() },
+    decidedAt: { type: Date },
+  },
+  { _id: false }
+);
 
 const userSchema = new mongoose.Schema<UserDoc>(
   {
@@ -43,6 +67,9 @@ const userSchema = new mongoose.Schema<UserDoc>(
     verified: { type: Boolean, default: false },
     role: { type: String, enum: ["user", "admin"], default: "user", index: true },
     canAddQuestions: { type: Boolean, default: false },
+    unlimited: { type: Boolean, default: false },
+    subscriptionExpiresAt: { type: Date },
+    payment: { type: paymentSchema },
     classLevel: { type: String, default: "" },
     city: { type: String, default: "" },
     school: { type: String, default: "" },

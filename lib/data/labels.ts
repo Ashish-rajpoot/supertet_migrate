@@ -88,6 +88,19 @@ export function loadSyllabus(): Promise<SyllabusSubject[]> {
   return syllabusPending;
 }
 
+/**
+ * Forget the cached syllabus and the label index built from it, so the
+ * next read goes back to the server. The syllabus editor calls this after
+ * an add / rename / delete, otherwise pages opened earlier keep showing
+ * subject and topic names that no longer exist.
+ */
+export function invalidateSyllabus() {
+  syllabusCache = null;
+  syllabusPending = null;
+  cached = null;
+  pending = null;
+}
+
 /** The full subject/topic tree, for pickers and the syllabus editor. */
 export function useSyllabus(): SyllabusSubject[] {
   const [list, setList] = useState<SyllabusSubject[]>(syllabusCache ?? []);
