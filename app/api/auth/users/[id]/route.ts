@@ -1,11 +1,6 @@
 import { isValidUserId } from "@/lib/userid";
-import {
-  NAME_MAX,
-  isValidEmail,
-  isValidPhone,
-  normaliseEmail,
-  normalisePhone,
-} from "@/lib/contact";
+import { NAME_MAX } from "@/lib/contact";
+import { applyContactChange } from "@/lib/server/contact-change";
 import { Otp, User } from "@/lib/server/models";
 import { hashPassword, requireAdmin } from "@/lib/server/auth";
 import { readBody, requireDb, toPublicUser } from "@/lib/server/api";
@@ -108,49 +103,20 @@ export async function PATCH(req: Request, { params }: Ctx) {
       }
       target.name = name || target.name;
     }
-    if (has(body, "email")) {
-      const email = normaliseEmail(String(body.email || ""));
-      if (email && !isValidEmail(email)) {
-        return Response.json({ error: "Enter a valid email address" }, { status: 400 });
+    // Contact details go through the single shared writer, which checks
+    // format, clashes and the "no way to sign in" case. allowEmpty so an
+    // admin can clear a bad contact.
+    for (const field of ["email", "phone"] as const) {
+      if (!has(body, field)) continue;
+      const problem = await applyContactChange(target, field, String(body[field] || ""), {
+        allowEmpty: true,
+      });
+      if (problem) {
+        return Response.json(
+          { error: problem },
+          { status: problem.includes("already registered") ? 409 : 400 }
+        );
       }
-      // Clearing a field is allowed (an admin may be removing a bad
-      // contact), so an empty value is honoured rather than ignored.
-      if (email !== target.email) {
-        if (email) {
-          const clash = await User.findOne({ email });
-          if (clash && clash.id !== target.id) {
-            return Response.json({ error: "This email is already registered" }, { status: 409 });
-          }
-        }
-        target.email = email;
-      }
-    }
-    if (has(body, "phone")) {
-      const phone = normalisePhone(String(body.phone || ""));
-      if (phone && !isValidPhone(phone)) {
-        return Response.json({ error: "Enter a valid phone number" }, { status: 400 });
-      }
-      if (phone !== target.phone) {
-        if (phone) {
-          const clash = await User.findOne({ phone });
-          if (clash && clash.id !== target.id) {
-            return Response.json(
-              { error: "This phone number is already registered" },
-              { status: 409 }
-            );
-          }
-        }
-        target.phone = phone;
-      }
-    }
-    // An account with neither contact can still sign in by user ID or
-    // Google, but a Google-only admin edit that empties both usually
-    // means a mistake - say so instead of silently locking someone out.
-    if (!target.email && !target.phone && !target.googleId && !target.passwordHash) {
-      return Response.json(
-        { error: "This account would have no way to sign in. Set an email or phone first." },
-        { status: 400 }
-      );
     }
     if (has(body, "userId")) {
       const userId = String(body.userId || "").trim().toLowerCase();
@@ -174,6 +140,40 @@ export async function PATCH(req: Request, { params }: Ctx) {
         );
       }
     }
+    /* ------------- approve / reject a contact change request ------------- */
+    if (has(body, "contactDecision")) {
+      const decision = String(body.contactDecision);
+      if (!["approved", "rejected"].includes(decision)) {
+        return Response.json(
+          { error: "contactDecision must be 'approved' or 'rejected'" },
+          { status: 400 }
+        );
+      }
+      if (target.contactRequest?.status !== "pending") {
+        return Response.json(
+          { error: "There is no pending contact change on this account" },
+          { status: 400 }
+        );
+      }
+      const request = target.contactRequest;
+      if (decision === "approved") {
+        // Goes through the same writer as the edit form, so approving a
+        // request cannot bypass the clash or sign-in checks.
+        const problem = await applyContactChange(
+          target,
+          request.field,
+          request.value,
+          { allowEmpty: false }
+        );
+        if (problem) {
+          // Leave it pending so the admin can fix the value, and say why.
+          return Response.json({ error: problem }, { status: 409 });
+        }
+      }
+      request.status = decision as "approved" | "rejected";
+      request.decidedAt = new Date();
+    }
+
     if (has(body, "verified")) target.verified = Boolean(body.verified);
     if (has(body, "classLevel")) target.classLevel = String(body.classLevel || "").slice(0, 120);
     if (has(body, "city")) target.city = String(body.city || "").slice(0, 120);

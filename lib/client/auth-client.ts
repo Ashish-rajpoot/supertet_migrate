@@ -103,6 +103,16 @@ export async function loginWithGoogleCredential(idToken: string) {
   return data;
 }
 
+/**
+ * Ask an admin to change the phone or email. Nothing is applied until
+ * they approve it - see the "request-contact" action in the API.
+ */
+export async function requestContactChange(field: "phone" | "email", value: string) {
+  const data = await api("request-contact", { field, value: value.trim() });
+  saveSession({ token: getAuthSession()?.token ?? "", user: data.user });
+  return data.user as PublicUser;
+}
+
 /** Is the signed-in user an admin? */
 export function isAdmin(): boolean {
   const u = getCurrentUser();
@@ -230,6 +240,8 @@ export interface UserPatch {
   unlimited?: boolean;
   /** Decide the pending payment: 'approved' extends by 30 days. */
   paymentDecision?: "approved" | "rejected";
+  /** Decide a pending phone/email change request. */
+  contactDecision?: "approved" | "rejected";
   classLevel?: string;
   city?: string;
   school?: string;

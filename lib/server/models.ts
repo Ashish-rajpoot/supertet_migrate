@@ -32,6 +32,18 @@ export interface UserDoc {
     submittedAt: Date;
     decidedAt?: Date;
   };
+  /**
+   * A request to change the phone or email, awaiting an admin. The value
+   * is stored here and NOT applied to email/phone until an admin approves
+   * it, so a request can never grant access on its own.
+   */
+  contactRequest?: {
+    field: "phone" | "email";
+    value: string;
+    status: "pending" | "approved" | "rejected";
+    submittedAt: Date;
+    decidedAt?: Date;
+  };
   classLevel: string;
   city: string;
   school: string;
@@ -46,6 +58,22 @@ const paymentSchema = new mongoose.Schema(
   {
     reference: { type: String, default: "" },
     method: { type: String, default: "" },
+    status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+    submittedAt: { type: Date, default: () => new Date() },
+    decidedAt: { type: Date },
+  },
+  { _id: false }
+);
+
+/**
+ * A pending change to the phone or email. Only the latest is kept per
+ * account, and the value is inert until an admin approves it - both
+ * properties mirror the payment request above.
+ */
+const contactRequestSchema = new mongoose.Schema(
+  {
+    field: { type: String, enum: ["phone", "email"], required: true },
+    value: { type: String, required: true },
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
     submittedAt: { type: Date, default: () => new Date() },
     decidedAt: { type: Date },
@@ -70,6 +98,7 @@ const userSchema = new mongoose.Schema<UserDoc>(
     unlimited: { type: Boolean, default: false },
     subscriptionExpiresAt: { type: Date },
     payment: { type: paymentSchema },
+    contactRequest: { type: contactRequestSchema },
     classLevel: { type: String, default: "" },
     city: { type: String, default: "" },
     school: { type: String, default: "" },

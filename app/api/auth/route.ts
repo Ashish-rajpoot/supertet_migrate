@@ -399,8 +399,13 @@ export async function POST(req: Request) {
   }
 
   /* ---------------- me / profile / change-password ---------------- */
-  // These three need a signed-in caller; the payload lookup happens once.
-  if (action === "me" || action === "profile" || action === "change-password") {
+  // These need a signed-in caller; the payload lookup happens once.
+  if (
+    action === "me" ||
+    action === "profile" ||
+    action === "change-password" ||
+    action === "request-contact"
+  ) {
     const auth = await requireAuth(req);
     if (auth instanceof Response) return auth;
     const dbDown = await requireDb();
@@ -428,6 +433,72 @@ export async function POST(req: Request) {
             (user as any)[field] = value;
           }
         }
+        await user.save();
+        return Response.json({ ok: true, user: toPublicUser(user) });
+      }
+
+      /* ---------------- request-contact: ask an admin to change it ----------------
+         Phone and email are login identifiers, so they cannot simply be
+         edited here. The student proposes a value; nothing changes until
+         an admin approves it through the same checks the edit form uses.
+
+         This is deliberately NOT an OTP flow: there is no SMS/email
+         provider wired up in this app yet (dispatchOtp only writes a row
+         and logs the code), so "verify the new number" would prove
+         nothing. Once a real sender exists, auto-approve after
+         verification is the natural next step. */
+      if (action === "request-contact") {
+        const field = String(body.field || "");
+        if (field !== "phone" && field !== "email") {
+          return Response.json({ error: "field must be 'phone' or 'email'" }, { status: 400 });
+        }
+        if (user.contactRequest?.status === "pending") {
+          return Response.json(
+            { error: "You already have a change waiting for review" },
+            { status: 409 }
+          );
+        }
+        // On a Google account the email is Google's to own. Say so now
+        // rather than letting the student wait for a refusal.
+        if (field === "email" && user.googleId) {
+          return Response.json(
+            { error: "This account signs in with Google, so its email cannot be changed." },
+            { status: 400 }
+          );
+        }
+        const value =
+          field === "phone" ? normalisePhone(String(body.value || "")) : normaliseEmail(String(body.value || ""));
+        const valid = field === "phone" ? isValidPhone(value) : isValidEmail(value);
+        if (!valid) {
+          return Response.json(
+            { error: field === "phone" ? "Enter a valid phone number" : "Enter a valid email address" },
+            { status: 400 }
+          );
+        }
+        if (value === user[field]) {
+          return Response.json(
+            { error: `That is already your ${field}` },
+            { status: 400 }
+          );
+        }
+        // Catch an obvious clash now so the student is not left waiting
+        // for an admin to reject it. The approval re-checks this too,
+        // since someone else may claim the number in between.
+        const clash = await User.findOne({ [field]: value, id: { $ne: user.id } })
+          .select("id")
+          .lean();
+        if (clash) {
+          return Response.json(
+            { error: `That ${field} is already registered to another account` },
+            { status: 409 }
+          );
+        }
+        user.contactRequest = {
+          field,
+          value,
+          status: "pending",
+          submittedAt: new Date(),
+        };
         await user.save();
         return Response.json({ ok: true, user: toPublicUser(user) });
       }

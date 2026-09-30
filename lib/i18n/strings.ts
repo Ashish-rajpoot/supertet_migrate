@@ -107,6 +107,47 @@ export const STRINGS = {
     hi: "यह बदला नहीं जा सकता।",
     en: "Set once and cannot be changed.",
   },
+  "contact.requestTitle": { hi: "बदलने का अनुरोध", en: "Request a change" },
+  "contact.phoneLabel": { hi: "मोबाइल नंबर", en: "Mobile number" },
+  "contact.emailLabel": { hi: "ईमेल", en: "Email" },
+  "contact.phoneBody": {
+    hi: "आपका नया नंबर भेजें। यह तब लागू होगा जब एडमिन स्वीकृत करेगा।",
+    en: "Send your new number. It is applied once an admin approves it.",
+  },
+  "contact.emailBody": {
+    hi: "आपका नया ईमेल भेजें। यह तब लागू होगा जब एडमिन स्वीकृत करेगा।",
+    en: "Send your new email. It is applied once an admin approves it.",
+  },
+  "contact.placeholderPhone": { hi: "98765 43210", en: "98765 43210" },
+  "contact.placeholderEmail": { hi: "you@example.com", en: "you@example.com" },
+  "contact.submit": { hi: "अनुरोध भेजें", en: "Send request" },
+  "contact.submitted": {
+    hi: "अनुरोध भेजा गया - एडमिन की स्वीकृति की प्रतीक्षा में।",
+    en: "Request sent - waiting for admin approval.",
+  },
+  "contact.pending": { hi: "बदलाव लंबित", en: "Change pending" },
+  "contact.pendingOn": {
+    hi: "{field} का बदलाव लंबित है",
+    en: "{field} change pending",
+  },
+  "contact.approved": { hi: "स्वीकृत", en: "Approved" },
+  "contact.rejected": { hi: "अस्वीकृत - दोबारा भेजें", en: "Rejected - send again" },
+  "contact.googleLocked": {
+    hi: "यह खाता Google से साइन इन करता है, इसलिए ईमेल नहीं बदला जा सकता।",
+    en: "This account signs in with Google, so its email cannot be changed.",
+  },
+  "users.contact.label": { hi: "बदलाव अनुरोध", en: "Change request" },
+  "users.contact.want": {
+    hi: "{field} → {value}",
+    en: "{field} → {value}",
+  },
+  "users.contact.approve": { hi: "स्वीकृत करें", en: "Approve" },
+  "users.contact.reject": { hi: "अस्वीकारें", en: "Reject" },
+  "users.contact.approved": {
+    hi: "बदलाव स्वीकृत - {field} अपडेट हो गया",
+    en: "Change approved - {field} updated",
+  },
+  "users.contact.rejected": { hi: "बदलाव अस्वीकृत", en: "Change rejected" },
   "users.field.password": { hi: "पासवर्ड", en: "Password" },
   "users.field.newPassword": {
     hi: "नया पासवर्ड (खाली छोड़ें = नहीं बदलें)",
