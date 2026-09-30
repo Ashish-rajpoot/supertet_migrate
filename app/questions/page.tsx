@@ -106,7 +106,7 @@ export default function QuestionsPage() {
   const [aiCount, setAiCount] = useState("20");
   const [aiSubject, setAiSubject] = useState("");
   const [aiTopic, setAiTopic] = useState("");
-  const [aiDifficulty, setAiDifficulty] = useState("");
+  const [aiDifficulties, setAiDifficulties] = useState<string[]>([]);
   const [aiMedium, setAiMedium] = useState("");
 
   const fileXlsx = useRef<HTMLInputElement | null>(null);
@@ -143,10 +143,10 @@ export default function QuestionsPage() {
         count: aiCount,
         subject: aiSubject,
         topic: aiTopic,
-        difficulty: aiDifficulty,
+        difficulty: aiDifficulties,
         medium: aiMedium,
       }),
-    [aiCount, aiSubject, aiTopic, aiDifficulty, aiMedium]
+    [aiCount, aiSubject, aiTopic, aiDifficulties, aiMedium]
   );
 
   /* ---------------- preview helpers ---------------- */
@@ -281,7 +281,10 @@ export default function QuestionsPage() {
   async function saveEdited(q: Question) {
     setBusy(true);
     try {
-      const outcome = await saveQuestion(q, { server: server.mongo && canAddQuestions() });
+      const outcome = await saveQuestion(q, {
+        server: server.mongo && canAddQuestions(),
+        mayWrite: canAddQuestions(),
+      });
       const note = outcomeNote(outcome);
       if (outcome.status === "error") toast.warning(note);
       else if (outcome.status === "missing") toast.info(note);
@@ -296,7 +299,7 @@ export default function QuestionsPage() {
 
   /** Delete here and, when the account may write, in the shared bank too. */
   async function deleteOne(id: string) {
-    const outcome = await deleteQuestion(id, { server: server.mongo && mayEdit });
+    const outcome = await deleteQuestion(id, { server: server.mongo && mayEdit, mayWrite: mayEdit });
     if (outcome.status === "error") toast.warning(outcomeNote(outcome));
     else toast.success("Question deleted");
     await refreshStatus();
@@ -576,17 +579,26 @@ export default function QuestionsPage() {
               />
             </Field>
             <Field label="Difficulty">
-              <Select value={aiDifficulty} onValueChange={setAiDifficulty}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Any" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Any</SelectItem>
-                  <SelectItem value="easy">Easy</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="hard">Hard</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3">
+                {(["easy", "medium", "hard"] as const).map((d) => (
+                  <label
+                    key={d}
+                    htmlFor={`ai-diff-${d}`}
+                    className="flex cursor-pointer items-center gap-1.5 py-1 text-sm capitalize"
+                  >
+                    <Switch
+                      id={`ai-diff-${d}`}
+                      checked={aiDifficulties.includes(d)}
+                      onCheckedChange={(v) =>
+                        setAiDifficulties((prev) =>
+                          v ? [...prev, d] : prev.filter((x) => x !== d)
+                        )
+                      }
+                    />
+                    {d}
+                  </label>
+                ))}
+              </div>
             </Field>
             <Field label="Medium">
               <Select value={aiMedium} onValueChange={setAiMedium}>
@@ -601,6 +613,11 @@ export default function QuestionsPage() {
               </Select>
             </Field>
           </div>
+
+          <p className="mt-1 text-xs text-muted-foreground">
+            “How many” applies per selected difficulty — 50 with all three checked means 50 easy +
+            50 medium + 50 hard (150 questions in all).
+          </p>
 
           <Textarea
             rows={12}

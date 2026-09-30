@@ -6,16 +6,27 @@
    enforces that too). When the server / MongoDB is offline the
    bundled data/subjects.json is shown read-only, so the page
    still has something useful to show without a backend.
+
+   Subjects and topics can also be pasted as JSON and added in bulk,
+   which previews first the same way the Questions page does.
    =========================================================== */
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Download, Pencil, Plus, X } from "lucide-react";
+import { ChevronDown, Copy, Download, Pencil, Plus, Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Collapsible,
   CollapsibleContent,
@@ -23,6 +34,7 @@ import {
 } from "@/components/ui/collapsible";
 import { AuthDialog } from "@/components/auth-dialog";
 import { DeleteScopeDialog, type DeleteChoice } from "@/components/delete-scope-dialog";
+import { ComboBox } from "@/components/combo-box";
 import { NameLabel, PageShell, SectionCard } from "@/components/misc";
 import { useAuth, useLang } from "@/components/providers";
 import {
@@ -47,6 +59,16 @@ import {
 } from "@/lib/client/question-crud";
 import { getAllWithServer } from "@/lib/data/normalize";
 import { invalidateSyllabus } from "@/lib/data/labels";
+import {
+  parseSyllabusJson,
+  SAMPLE_SYLLABUS_JSON,
+  type SyllabusImport,
+} from "@/lib/data/syllabus-import";
+import {
+  buildSyllabusPrompt,
+  EXAM_PRESETS,
+  SYLLABUS_PROMPT_EXAMPLE,
+} from "@/lib/data/syllabus-ai-prompt";
 import type { SyllabusSubject, SyllabusTopic } from "@/lib/types";
 
 /** Load the syllabus: the server copy, else the bundled JSON file. */
@@ -98,6 +120,16 @@ export default function SubjectsPage() {
   const [editTopic, setEditTopic] = useState<{ s: string; t: string } | null>(null);
   const [newName, setNewName] = useState("");
   const [newNameHi, setNewNameHi] = useState("");
+
+  // Bulk add from pasted JSON: the box, and what the preview read out of it.
+  const [bulkText, setBulkText] = useState("");
+  const [bulk, setBulk] = useState<SyllabusImport | null>(null);
+
+  // AI prompt card: the choices the prompt is filled in from.
+  const [aiExam, setAiExam] = useState(SYLLABUS_PROMPT_EXAMPLE.exam);
+  const [aiSubjectNames, setAiSubjectNames] = useState("");
+  const [aiMedium, setAiMedium] = useState("Hindi + English");
+  const [aiFocus, setAiFocus] = useState("");
 
   // A delete whose "what about the questions?" answer is still pending.
   const [pendingDelete, setPendingDelete] = useState<{
@@ -254,8 +286,16 @@ export default function SubjectsPage() {
       // so the bank can never end up pointing at a subject that is gone.
       if (choice.mode !== "keep") {
         const scope: Scope = { subject: s.name, topic: topic?.name };
-        const decision: ScopeChoice = { mode: choice.mode, moveTo };
-        const res = await applyScopeToQuestions(scope, decision, { server: onServer });
+        // "clear" (delete only the questions) is not offered on this page, but
+        // narrow the mode anyway so only a real cascade reaches the helper.
+        const decision: ScopeChoice = {
+          mode: choice.mode === "move" ? "move" : "delete",
+          moveTo,
+        };
+        const res = await applyScopeToQuestions(scope, decision, {
+          server: onServer,
+          mayWrite: isAdmin,
+        });
         if (!res.ok) {
           toast.error("Nothing was deleted - the questions could not be handled: " + res.error);
           return;
@@ -307,6 +347,97 @@ export default function SubjectsPage() {
       );
       await reload();
     });
+  }
+
+  /* -------- bulk add: paste a JSON chunk of the syllabus -------- */
+
+  function previewBulk() {
+    setBulk(parseSyllabusJson(bulkText));
+  }
+
+  /**
+   * Add what the preview found. A subject that is already there is left
+   * alone and only receives the topics it is missing, so pasting the same
+   * JSON twice never fails and never duplicates anything.
+   */
+  async function saveBulk() {
+    if (!bulk?.subjects.length) return;
+    await run(async () => {
+      const failures: string[] = [];
+      let newSubjects = 0;
+      let newTopics = 0;
+      let skipped = 0;
+
+      for (const s of bulk.subjects) {
+        const wanted = s.topics.map((t) => ({ name: t.name, nameHi: t.nameHi }));
+        const existing = subjects.find(
+          (x) => x.name.trim().toLowerCase() === s.name.toLowerCase()
+        );
+        if (!existing) {
+          try {
+            await saveSubject({ name: s.name, nameHi: s.nameHi, topics: wanted });
+            newSubjects += 1;
+            newTopics += wanted.length;
+          } catch (err) {
+            failures.push(`${s.name}: ${(err as Error)?.message || "unknown error"}`);
+          }
+          continue;
+        }
+        const have = new Set((existing.topics || []).map((t) => t.name.trim().toLowerCase()));
+        for (const t of wanted) {
+          if (have.has(t.name.toLowerCase())) {
+            skipped += 1;
+            continue;
+          }
+          try {
+            await addTopic(existing.id, t);
+            have.add(t.name.toLowerCase());
+            newTopics += 1;
+          } catch (err) {
+            failures.push(`${s.name} / ${t.name}: ${(err as Error)?.message || "unknown error"}`);
+          }
+        }
+      }
+
+      await reload();
+      const summary =
+        `Added ${newSubjects} subject(s) and ${newTopics} topic(s)` +
+        (skipped ? ` · ${skipped} already there` : "");
+      if (failures.length) {
+        // The box and the preview stay, so a refused row can be fixed and retried.
+        toast.error(
+          `${summary} · ${failures.length} failed: ${failures.slice(0, 2).join(" · ")}`
+        );
+      } else {
+        toast.success(summary);
+        setBulk(null);
+        setBulkText("");
+      }
+    });
+  }
+
+  /* -------- the AI prompt, filled in from the fields above -------- */
+
+  // Subjects already published are listed in the prompt, so a subject the
+  // admin names again keeps the name the site already shows.
+  const syllabusPrompt = useMemo(
+    () =>
+      buildSyllabusPrompt({
+        exam: aiExam,
+        subjects: aiSubjectNames,
+        medium: aiMedium,
+        extra: aiFocus,
+        existing: subjects.map((s) => s.name),
+      }),
+    [aiExam, aiSubjectNames, aiMedium, aiFocus, subjects]
+  );
+
+  function fillExampleValues() {
+    setAiExam(SYLLABUS_PROMPT_EXAMPLE.exam);
+    setAiSubjectNames(SYLLABUS_PROMPT_EXAMPLE.subjects);
+    setAiMedium(SYLLABUS_PROMPT_EXAMPLE.medium);
+    setAiFocus(SYLLABUS_PROMPT_EXAMPLE.focus);
+    toast.success("Example values filled in - copy the prompt and send it to your LLM");
   }
 
   if (!ready || loading) {
@@ -398,6 +529,184 @@ export default function SubjectsPage() {
             </Field>
             <Button onClick={addSubject} disabled={busy || !newName.trim()}>
               <Plus /> Add subject
+            </Button>
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {/* ---------------- add many from JSON ---------------- */}
+      {canEdit ? (
+        <SectionCard
+          title="Or add many at once from JSON"
+          description="Paste a JSON array of subjects with their topics, then preview it. A subject that already exists is left alone and only receives the topics it is missing."
+        >
+          <Textarea
+            rows={8}
+            value={bulkText}
+            onChange={(e) => setBulkText(e.target.value)}
+            placeholder={SAMPLE_SYLLABUS_JSON}
+            className="font-mono text-xs"
+            aria-label="Subjects and topics JSON"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button variant="outline" onClick={previewBulk} disabled={busy || !bulkText.trim()}>
+              Preview subjects
+            </Button>
+            <Button variant="ghost" onClick={() => setBulkText(SAMPLE_SYLLABUS_JSON)}>
+              Insert a sample
+            </Button>
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {/* ---------------- bulk preview ---------------- */}
+      {canEdit && bulk ? (
+        <SectionCard
+          title={
+            bulk.subjects.length
+              ? `Preview — ${bulk.subjects.length} subject(s), ${bulk.topics} topic(s) ready`
+              : "Preview"
+          }
+          actions={
+            <>
+              <Button size="sm" variant="ghost" onClick={() => setBulk(null)} disabled={busy}>
+                Discard
+              </Button>
+              <Button size="sm" onClick={saveBulk} disabled={busy || !bulk.subjects.length}>
+                Add to syllabus
+              </Button>
+            </>
+          }
+        >
+          {bulk.errors.length ? (
+            <div className="mb-3 border-l-4 border-destructive pl-3 text-sm">
+              <strong>Rows needing a fix ({bulk.errors.length})</strong>
+              <ul className="mt-1.5 pl-4">
+                {bulk.errors.slice(0, 12).map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+                {bulk.errors.length > 12 ? (
+                  <li className="text-muted-foreground">… {bulk.errors.length - 12} more</li>
+                ) : null}
+              </ul>
+            </div>
+          ) : null}
+
+          {bulk.subjects.length ? (
+            <div className="max-h-96 overflow-y-auto rounded-xl border">
+              <ul className="divide-y">
+                {bulk.subjects.map((s) => (
+                  <li key={s.name} className="p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium">{s.name}</span>
+                      {s.nameHi ? (
+                        <span className="text-xs text-muted-foreground">{s.nameHi}</span>
+                      ) : null}
+                      <Badge variant="secondary" className="text-xs font-normal">
+                        {s.topics.length} topic(s)
+                      </Badge>
+                    </div>
+                    {s.topics.length ? (
+                      <ul className="mt-1.5 flex flex-wrap gap-1">
+                        {s.topics.map((t) => (
+                          <li
+                            key={t.name}
+                            className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground"
+                          >
+                            {t.name}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No usable subjects in that text.</p>
+          )}
+        </SectionCard>
+      ) : null}
+
+      {/* ---------------- AI prompt ---------------- */}
+      {isAdmin ? (
+        <SectionCard
+          title="Or let an AI write the syllabus for you"
+          description="Pick the exam, name the subjects, copy the prompt, then paste the JSON answer into the box above. The subjects already published are named in the prompt, so a subject you type again keeps the name the site already shows."
+          actions={
+            <Button
+              size="sm"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(syllabusPrompt);
+                  toast.success("Prompt copied");
+                } catch {
+                  toast.error("Could not copy - select the text and copy manually");
+                }
+              }}
+            >
+              <Copy /> Copy prompt
+            </Button>
+          }
+        >
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Exam / type">
+              <ComboBox
+                value={aiExam}
+                onChange={setAiExam}
+                options={EXAM_PRESETS.map((e) => ({ value: e }))}
+                placeholder="SuperTET, TET, Railway..."
+                ariaLabel="Exam or type"
+              />
+            </Field>
+            <Field label="Subjects">
+              <Input
+                value={aiSubjectNames}
+                onChange={(e) => setAiSubjectNames(e.target.value)}
+                placeholder="e.g. Mathematics, Environmental Studies"
+                maxLength={300}
+                aria-label="Subjects to write topics for"
+              />
+            </Field>
+            <Field label="Hindi names">
+              <Select value={aiMedium} onValueChange={setAiMedium}>
+                <SelectTrigger aria-label="Hindi names">
+                  <SelectValue placeholder="Hindi + English" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Hindi + English">Hindi + English</SelectItem>
+                  <SelectItem value="English">English only (nameHi stays empty)</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Focus (optional)">
+              <Input
+                value={aiFocus}
+                onChange={(e) => setAiFocus(e.target.value)}
+                placeholder="e.g. level 1 and level 2 papers"
+                maxLength={200}
+                aria-label="Extra focus for the AI"
+              />
+            </Field>
+          </div>
+
+          <p className="mt-2 text-xs text-muted-foreground">
+            Name the subjects you want and the AI writes the full topic list for each one from its
+            own knowledge of that exam. Leave the subjects empty to let it list the main papers
+            itself. The subjects already published are named in the prompt, so a subject you type
+            again keeps the name the site already shows.
+          </p>
+
+          <Textarea
+            rows={14}
+            readOnly
+            value={syllabusPrompt}
+            className="mt-3 font-mono text-xs"
+            aria-label="AI syllabus prompt"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={fillExampleValues}>
+              <Wand2 /> Use example values
             </Button>
           </div>
         </SectionCard>

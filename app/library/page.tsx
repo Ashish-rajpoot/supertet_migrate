@@ -7,7 +7,8 @@
    (seed + this device + the shared server), and because it is the
    only screen that sees all three, it is also where the bank is
    maintained: add a question, fix one, delete one - or clear a whole
-   topic or subject and decide where its questions go first.
+   topic or subject (or only its questions, keeping the name) and
+   decide where they go first.
 
    Writes go to this device first and to the shared bank second
    (lib/client/question-crud.ts), so work is never lost just because
@@ -43,7 +44,7 @@ import {
   deleteTopic,
   type ServerStatus,
 } from "@/lib/client/sync";
-import { countQuestionsOnDevice } from "@/lib/client/store";
+import { countQuestionsOnDevice, outboxSize } from "@/lib/client/store";
 import {
   applyScopeToQuestions,
   countServerScope,
@@ -117,6 +118,8 @@ export default function LibraryPage() {
   const [server, setServer] = useState<ServerStatus>({ online: false, mongo: false });
   const [syllabus, setSyllabus] = useState<SyllabusSubject[]>([]);
   const [loginOpen, setLoginOpen] = useState(false);
+  /** Question edits still waiting for the shared bank (see the outbox). */
+  const [queued, setQueued] = useState(0);
   const [editor, setEditor] = useState<EditorState>(CLOSED_EDITOR);
   const [pending, setPending] = useState<PendingScope | null>(null);
   const [dropSyllabus, setDropSyllabus] = useState(false);
@@ -126,13 +129,17 @@ export default function LibraryPage() {
   /** May this user change the bank at all? */
   const canWrite = ready && canAddQuestions();
   /** Should a write also be sent to the shared bank? */
-  const ctx: CrudContext = { server: server.mongo && canAddQuestions() };
+  const ctx: CrudContext = {
+    server: server.mongo && canAddQuestions(),
+    mayWrite: canAddQuestions(),
+  };
 
   const reload = useCallback(async () => {
     const list = await getAllWithServer();
     setAll(list);
     setGroups(groupBySubjectTopic(list));
     setTotal(list.length);
+    setQueued(outboxSize());
   }, []);
 
   /** Pickers and Hindi labels cache the syllabus - a delete has to clear it. */
@@ -247,9 +254,16 @@ export default function LibraryPage() {
     if (!p) return;
     const scope: Scope = { subject: p.subject, topic: p.topic };
     // "keep" is only worth running when a syllabus entry also has to go.
+    // "clear" removes just the questions, so the entry must never go with it.
     const decision: ScopeChoice | null =
-      choice.mode === "keep" ? null : { mode: choice.mode, moveTo: choice.moveTo };
+      choice.mode === "keep"
+        ? null
+        : {
+            mode: choice.mode === "move" ? "move" : "delete",
+            moveTo: choice.mode === "move" ? choice.moveTo : undefined,
+          };
     const dropEntry =
+      choice.mode !== "clear" &&
       dropSyllabus &&
       server.mongo &&
       isAdmin &&
@@ -288,12 +302,17 @@ export default function LibraryPage() {
       await reload();
       const what = p.topic ? `topic "${p.topic}"` : `subject "${p.subject}"`;
       toast.success(
-        `Cleared the ${what}` +
-          (choice.mode === "keep"
-            ? ""
-            : touched
-              ? ` · ${touched} question(s) ${choice.mode === "move" ? "moved" : "deleted"}`
-              : "")
+        choice.mode === "clear"
+          ? `Deleted only the question(s) of the ${what}` +
+              (touched
+                ? ` · ${touched} removed, the ${p.topic ? "topic" : "subject"} stays`
+                : "")
+          : `Cleared the ${what}` +
+              (choice.mode === "keep"
+                ? ""
+                : touched
+                  ? ` · ${touched} question(s) ${choice.mode === "move" ? "moved" : "deleted"}`
+                  : "")
       );
     });
   }
@@ -417,6 +436,7 @@ export default function LibraryPage() {
         <p className="text-xs text-muted-foreground">
           The shared bank is out of reach, so changes stay on this device and are shared again when
           the server is back.
+          {queued ? ` ${queued} change(s) are waiting for the connection.` : ""}
         </p>
       ) : null}
 
@@ -494,6 +514,7 @@ export default function LibraryPage() {
         open={Boolean(pending)}
         busy={busy}
         showKeep={false}
+        showQuestionsOnly
         confirmLabel={pending?.topic ? "Delete topic" : "Delete subject"}
         targetLabel={pending?.topic ? "topic" : "subject"}
         title={

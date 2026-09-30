@@ -337,6 +337,68 @@ export function setSyncQueue(q: Attempt[]) {
   }
 }
 
+/* ---------------- offline outbox: question writes ---------------- */
+
+/**
+ * A question change the shared bank did not get yet. The device copy is
+ * already written, so this is only the "tell the server later" half.
+ *
+ *   upsert - a question was added or edited (push is an id upsert)
+ *   delete - one question was removed
+ *   scope  - a whole subject or topic was cleared or re-filed
+ *
+ * The queue is replayed in insertion order by flushQuestionOutbox() in
+ * client/sync.ts, on boot and on the browser's "online" event.
+ */
+export type OutboxItem =
+  | { kind: "upsert"; id: string; question: Question; at: number }
+  | { kind: "delete"; id: string; at: number }
+  | {
+      kind: "scope";
+      subject: string;
+      topic?: string;
+      mode: "delete" | "move";
+      moveTo?: string;
+      at: number;
+    };
+
+/** Guard against a device that stays offline for days filling localStorage. */
+const OUTBOX_LIMIT = 200;
+
+const OUTBOX_KEY = "stp.outbox";
+
+export const getOutbox = (): OutboxItem[] => read<OutboxItem[]>(OUTBOX_KEY, []);
+
+export function setOutbox(items: OutboxItem[]) {
+  try {
+    localStorage.setItem(OUTBOX_KEY, JSON.stringify(items));
+  } catch {
+    /* quota */
+  }
+}
+
+/**
+ * Remember one change for the next reconnect. An earlier queued change to
+ * the same question is dropped rather than replayed twice: the ids make
+ * both an upsert and a delete idempotent, so only the final intent matters.
+ * Order is otherwise preserved, so a delete that follows an edit still runs
+ * after it.
+ */
+export function enqueueOutbox(item: OutboxItem): number {
+  const list = getOutbox();
+  const id = item.kind === "scope" ? "" : item.id;
+  const kept =
+    id && (item.kind === "upsert" || item.kind === "delete")
+      ? list.filter((i) => i.kind === "scope" || i.id !== id)
+      : list;
+  const next = [...kept, item].slice(-OUTBOX_LIMIT);
+  setOutbox(next);
+  return next.length;
+}
+
+/** How many changes are waiting to reach the shared bank. */
+export const outboxSize = (): number => getOutbox().length;
+
 /* ---------------- backup / restore ---------------- */
 export function exportAll(extra: Record<string, unknown> = {}) {
   return {

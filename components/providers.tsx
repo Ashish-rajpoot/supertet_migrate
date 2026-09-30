@@ -26,7 +26,7 @@ import {
 } from "@/lib/client/auth-client";
 import { getLang, setLang as persistLang } from "@/lib/client/util";
 import { getSettings, saveSettings as persistSettings } from "@/lib/client/store";
-import { flushQueue } from "@/lib/client/sync";
+import { flushQueue, flushQuestionOutbox } from "@/lib/client/sync";
 import {
   A11Y_BOOT_SCRIPT,
   getDockHidden,
@@ -142,6 +142,7 @@ function Inner({ children }: { children: ReactNode }) {
     // Silent session re-check, outbox flush, service worker registration.
     void checkSession().then((u) => setUser(u ?? getCurrentUser()));
     void flushQueue();
+    void flushQuestionOutbox();
 
     // The offline cache only makes sense for a production build. In dev the
     // chunk URLs are reused while their contents change, so a cache-first
@@ -180,18 +181,23 @@ function Inner({ children }: { children: ReactNode }) {
     };
     const onSettings = (e: Event) =>
       setSettingsState((e as CustomEvent<Settings>).detail ?? getSettings());
+    /** Back online: send the results and the question edits that waited. */
+    const onOnline = () => {
+      void flushQueue();
+      void flushQuestionOutbox();
+    };
     window.addEventListener("stp:auth", onAuth);
     window.addEventListener("stp:lang", onLang);
     window.addEventListener("stp:a11y", onA11y);
     window.addEventListener("stp:settings", onSettings);
-    window.addEventListener("online", flushQueue);
+    window.addEventListener("online", onOnline);
     return () => {
       window.removeEventListener("load", onLoad);
       window.removeEventListener("stp:auth", onAuth);
       window.removeEventListener("stp:lang", onLang);
       window.removeEventListener("stp:a11y", onA11y);
       window.removeEventListener("stp:settings", onSettings);
-      window.removeEventListener("online", flushQueue);
+      window.removeEventListener("online", onOnline);
     };
   }, [setTheme]);
 

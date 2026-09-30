@@ -2,20 +2,22 @@
 
 Need questions for your test bank? You do not have to type them one by one. Copy the prompt below, paste it into **any** LLM - ChatGPT, Claude, Gemini, Copilot, DeepSeek, Grok, a local Ollama model - and the model will reply with a JSON array in the exact column layout this website imports. The answer-key, the question text in the medium you choose (Hindi, English or both) and explanations are all included.
 
-The same prompt is also shown **right inside the app**: open the **Questions** page (admin or an allowed account) and you will find it directly under the *Add questions in bulk* card - the placeholders are filled in live from the *How many questions / Subject / Topic / Difficulty / Medium* fields, so just press **Copy AI prompt** and paste it into your LLM.
+The same prompt is also shown **right inside the app**: open the **Questions** page (admin or an allowed account) and you will find it directly under the *Add questions in bulk* card - the placeholders are filled in live from the *How many questions / Subject / Topic / Difficulty / Medium* fields, so just press **Copy AI prompt** and paste it into your LLM. **Difficulty** is a row of Easy / Medium / Hard switches you can combine freely (only Easy, Easy + Hard, all three, ...), and *How many* is counted **per selected difficulty**: pick all three with `50` and the prompt asks for 50 easy + 50 medium + 50 hard questions, 150 in all.
 
 The **Subject** and **Topic** fields are searchable dropdowns (a combobox you can type in) built from the syllabus in `data/subjects.json` - or from the subjects the admin published on the **Subjects** page when the backend is running. Typing filters the list and searching also matches the Hindi names, so `विज्ञान` finds *Science*. Picking a suggestion copies that exact subject/topic name into the prompt, which is what makes the AI write questions for the chapter you actually want; typing a name that is not in the syllabus still works.
 
 ## Placeholders
 
-Replace these five slots before pasting, or let the app do it for you:
+Replace these seven slots before pasting, or let the app do it for you:
 
 | Placeholder | Meaning | Example |
 |-------------|---------|---------|
-| `{{N}}` | How many questions to write | `20` |
+| `{{N}}` | How many questions to write **per difficulty** | `20` |
 | `{{SUBJECT}}` | Subject / paper of the test menu | `GK & GS` |
 | `{{TOPIC}}` | Chapter or topic inside the subject | `Important Days` |
-| `{{DIFFICULTY}}` | `easy`, `medium` or `hard` | `medium` |
+| `{{DIFFICULTY}}` | One difficulty or a list: `medium`, `easy and hard`, `easy, medium and hard` | `medium` |
+| `{{COUNT_RULE}}` | The per-difficulty split the model must produce | `20 easy + 20 medium + 20 hard` |
+| `{{TOTAL}}` | `{{N}}` multiplied by the number of selected difficulties | `60` |
 | `{{MEDIUM}}` | Language medium: `Hindi` (default), `English` or `Hindi + English` | `Hindi` |
 
 ## The prompt
@@ -26,10 +28,11 @@ Paste everything inside the box:
 You write exam questions for "SuperTET Prep", a bilingual (Hindi + English) practice-test website for SuperTET / TET style teacher-eligibility exams.
 
 TASK
-Create exactly {{N}} new multiple-choice questions.
+Create exactly {{N}} new multiple-choice questions PER DIFFICULTY - {{TOTAL}} questions in all.
 - Subject: {{SUBJECT}}
 - Topic: {{TOPIC}} (if that is broad, cover several sub-topics inside it)
-- Difficulty: {{DIFFICULTY}} (must be one of: easy, medium, hard)
+- Difficulty: {{DIFFICULTY}} (each value must be one of: easy, medium, hard)
+- Count breakdown: {{COUNT_RULE}}
 - Medium: {{MEDIUM}}
 
 MEDIUM RULES (which language columns to fill)
@@ -46,7 +49,7 @@ id, subject, topic, difficulty, q_hi, q_en, opt1_hi, opt2_hi, opt3_hi, opt4_hi, 
 FIELD RULES
 - id: unique inside the array; only lowercase letters, digits and hyphens. For subject "Science" use science-001, science-002, ...
 - subject and topic: copy the Subject and Topic values above verbatim into every row.
-- difficulty: "easy", "medium" or "hard" only.
+- difficulty: "easy", "medium" or "hard" only. When TASK asks for several difficulties, spread the rows so the Count breakdown matches exactly.
 - q_hi / q_en: the question text, filled exactly as MEDIUM RULES demands (empty string "" for the language not used). Each filled field at most 200 characters.
 - opt1..opt4 (hi and en): exactly four options, in the same order in both columns when both are used, plausible and similar in length. Never use "all of the above", "none of the above" or "both A and B".
 - answer: only the letter of the correct option - "A", "B", "C" or "D" - matching its position (opt1 = A, opt2 = B, opt3 = C, opt4 = D). Exactly one option is correct. Spread the correct letters roughly evenly across the batch.
@@ -66,7 +69,7 @@ EXAMPLE (the exact shape - do not copy the content)
     "id": "gk-001",
     "subject": "{{SUBJECT}}",
     "topic": "{{TOPIC}}",
-    "difficulty": "{{DIFFICULTY}}",
+    "difficulty": "medium",
     "q_hi": "राष्ट्रीय युवा दिवस कब मनाया जाता है?",
     "q_en": "When is National Youth Day celebrated?",
     "opt1_hi": "10 जनवरी",
@@ -86,13 +89,13 @@ EXAMPLE (the exact shape - do not copy the content)
 
 The example shows the bilingual medium; for "Hindi" or "English" medium fill only the columns named in MEDIUM RULES and leave the others as empty strings "".
 
-Now output the JSON array with exactly {{N}} questions for {{SUBJECT}} / {{TOPIC}} (medium: {{MEDIUM}}). Remember: only the JSON array, nothing else.
+Now output the JSON array with exactly {{N}} questions per difficulty - {{TOTAL}} in all - for {{SUBJECT}} / {{TOPIC}} (medium: {{MEDIUM}}). Remember: only the JSON array, nothing else.
 ```
 
 
 ### Filled-in example
 
-If you replace the slots with `{{N}} = 5`, `{{SUBJECT}} = GK & GS`, `{{TOPIC}} = Important Days`, `{{DIFFICULTY}} = medium`, `{{MEDIUM}} = Hindi + English`, the model should answer with a bare JSON array like:
+If you replace the slots with `{{N}} = 5`, `{{SUBJECT}} = GK & GS`, `{{TOPIC}} = Important Days`, `{{DIFFICULTY}} = medium`, `{{COUNT_RULE}} = 5 medium`, `{{TOTAL}} = 5`, `{{MEDIUM}} = Hindi + English`, the model should answer with a bare JSON array like:
 
 ```json
 [
@@ -133,7 +136,7 @@ Either way you get a **preview** first: valid rows are counted, problems are lis
 
 ## Tips
 
-- Ask for batches of 10-30 questions; long batches drift off-topic or repeat.
+- Ask for batches of 10-30 questions; long batches drift off-topic or repeat. Remember the count is **per difficulty**: all three difficulties with `50` asks for `150` questions in one reply, which is better split into three runs (one per difficulty) or a smaller count.
 - For a Hindi-medium or English-medium batch the other language's columns come back as empty strings `""` - that is correct and imports fine; the site then shows only the filled language.
 - Always spot-check facts and the answer key - LLMs can be confidently wrong.
 - The site rejects rows with no question, no options or a missing/invalid answer (`A`-`D` or `1`-`4`); fix those rows and paste again - the preview tells you exactly which row failed.
@@ -142,7 +145,7 @@ Either way you get a **preview** first: valid rows are counted, problems are lis
 
 ## File map
 
-- Prompt source (used by the Questions page): `js/ai-prompt.js`
+- Prompt source (used by the Questions page): `lib/data/ai-prompt.ts`
 - This guide: `AI-QUESTION-PROMPT.md`
 - Excel template generator: `tools/make_template.py`
 - Column guide: `README.md` section 3 ("Adding questions")
