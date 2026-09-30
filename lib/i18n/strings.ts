@@ -1,4 +1,4 @@
-/* ===========================================================
+﻿/* ===========================================================
    lib/i18n/strings.ts - every user-visible UI string, in
    both languages, in one typed dictionary.
 
@@ -251,13 +251,15 @@ export const STRINGS = {
   "theme.auto": { hi: "ऑटो (डिवाइस के अनुसार)", en: "Auto (follow device)" },
   "theme.light": { hi: "लाइट", en: "Light" },
   "theme.dark": { hi: "डार्क", en: "Dark" },
+  "theme.sepia": { hi: "सैपिया (आँखों के लिए)", en: "Sepia (easy on eyes)" },
+  "theme.contrast": { hi: "उच्च कंट्रास्ट", en: "High contrast" },
   "theme.current": { hi: "थीम: {mode} (बदलने के लिए क्लिक करें)", en: "Theme: {mode} (click to change)" },
   "theme.aria": { hi: "थीम: {mode}", en: "Theme: {mode}" },
 
   "lang.label": { hi: "भाषा", en: "Language" },
-  "lang.both": { hi: "हिंदी + English", en: "हिंदी + English" },
+  "lang.both": { hi: "हिंदी + English", en: "Hindi + English" },
   "lang.hi": { hi: "हिंदी", en: "Hindi" },
-  "lang.en": { hi: "English", en: "English" },
+  "lang.en": { hi: "अंग्रेज़ी", en: "English" },
 
   /* ---------------- accessibility dock ---------------- */
   "a11y.title": { hi: "सुगम्यता", en: "Accessibility" },

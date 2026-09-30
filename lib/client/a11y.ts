@@ -62,4 +62,9 @@ export const A11Y_BOOT_SCRIPT =
   "(function(){try{var d=document.documentElement,f=localStorage.getItem('stp.font');" +
   "if(f==='sm'||f==='lg'||f==='xl')d.setAttribute('data-font',f);" +
   "if(localStorage.getItem('stp.a11yDock')==='1')d.setAttribute('data-a11y','off');" +
+  // next-themes applies .dark before the first paint but knows nothing
+  // about the extra palettes, so sepia/contrast are set here for the
+  // same reason: without it a saved sepia theme flashes white first.
+  "var t=localStorage.getItem('stp.theme');" +
+  "if(t==='sepia'||t==='contrast')d.setAttribute('data-theme',t);" +
   "}catch(e){}})();";
