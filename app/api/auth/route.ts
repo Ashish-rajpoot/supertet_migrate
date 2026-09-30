@@ -335,13 +335,36 @@ export async function POST(req: Request) {
       if (!payload || !payload.email) {
         return Response.json({ error: "Google sign-in failed. Try again." }, { status: 401 });
       }
+      const email = normaliseEmail(String(payload.email || ""));
+      // 1. An account that already linked this exact Google identity.
+      // 2. A password account that has never linked Google, matched on the
+      //    verified Google email - this is the "adopt Google sign-in" path.
+      //    It is only safe while the account has no googleId: once linked,
+      //    the Google identity is authoritative and email must not be able
+      //    to redirect it. See the note below.
       let user = null;
+      let emailMatch = false;
       if (payload.sub) user = await User.findOne({ googleId: payload.sub });
-      if (!user && payload.email) {
-        user = await User.findOne({ email: normaliseEmail(String(payload.email || "")) });
+      if (!user && email) {
+        const candidate = await User.findOne({ email });
+        if (candidate) {
+          if (candidate.googleId && candidate.googleId !== payload.sub) {
+            // Someone controls this email on a Google account that is NOT
+            // the one linked here. Letting them in would hand the account
+            // (and its history) to a different person, so stop.
+            return Response.json(
+              {
+                error:
+                  "This email is already linked to a different Google account. Sign in with that account, or with your password.",
+              },
+              { status: 409 }
+            );
+          }
+          user = candidate;
+          emailMatch = true;
+        }
       }
       if (!user) {
-        const email = normaliseEmail(String(payload.email || ""));
         user = new User({
           id: "u_" + crypto.randomUUID(),
           name: payload.name || "Student",
@@ -359,8 +382,11 @@ export async function POST(req: Request) {
         });
         await applyAdminBootstrap(user);
         await user.save();
-      } else if (!user.verified || (payload.sub && user.googleId !== payload.sub)) {
-        if (payload.sub) user.googleId = payload.sub;
+      } else if (!user.verified || (emailMatch && payload.sub && !user.googleId)) {
+        // Link a password account to Google for the first time. Only ever
+        // fills an empty googleId - an existing link is never overwritten,
+        // or a changed email address could rebind someone else's identity.
+        if (payload.sub && !user.googleId) user.googleId = payload.sub;
         user.verified = true;
         if (payload.picture && !user.avatar) user.avatar = payload.picture;
         await applyAdminBootstrap(user);
