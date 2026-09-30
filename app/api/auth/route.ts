@@ -1,4 +1,11 @@
-import crypto from "node:crypto";
+﻿import crypto from "node:crypto";
+import { isValidUserId, uniqueUserId } from "@/lib/userid";
+import {
+  isValidEmail,
+  isValidPhone,
+  normaliseEmail,
+  normalisePhone,
+} from "@/lib/contact";
 import { Otp, User } from "@/lib/server/models";
 import {
   generateOtp,
@@ -33,13 +40,17 @@ const PROFILE_FIELDS = ["name", "avatar", "classLevel", "city", "school", "about
 
 function parseIdentifier(input = "") {
   const str = String(input).trim();
-  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str);
-  const isPhone = /^\+?[0-9]{10,14}$/.test(str.replace(/[\s-]/g, ""));
+  const email = normaliseEmail(str);
+  const phone = normalisePhone(str);
+  const isEmail = isValidEmail(email);
+  const isPhone = isValidPhone(phone);
   return {
     raw: str,
     isEmail,
     isPhone,
-    value: isPhone ? str.replace(/[\s-]/g, "") : isEmail ? str.toLowerCase() : str,
+    // Canonical form, so the value stored matches the one every later
+    // lookup will search for. See lib/contact.ts.
+    value: isPhone ? phone : isEmail ? email : str,
   };
 }
 
@@ -108,7 +119,7 @@ export async function POST(req: Request) {
       }
       const userId = userIdRaw.toLowerCase();
       if (userId) {
-        if (!/^[a-z0-9_.]{3,30}$/.test(userId)) {
+        if (!isValidUserId(userId)) {
           return Response.json(
             { error: "User ID must be 3-30 chars: letters, numbers, _ or ." },
             { status: 400 }
@@ -119,13 +130,21 @@ export async function POST(req: Request) {
           return Response.json({ error: "This user ID is taken. Pick another." }, { status: 409 });
         }
       }
+      // With no id chosen, derive a clean one from the email/phone:
+      // "Rani Sharma@gmail.com" becomes "rani.sharma", not the whole
+      // address. See lib/userid.ts.
+      const finalUserId =
+        userId ||
+        (await uniqueUserId(identifier.value, async (c) =>
+          Boolean(await User.findOne({ userId: c }).select("id").lean())
+        ));
       const { hash, salt } = hashPassword(password);
       const user = new User({
         id: "u_" + crypto.randomUUID(),
         name: name || "Student",
         email: identifier.isEmail ? identifier.value : "",
         phone: identifier.isPhone ? identifier.value : "",
-        userId: userId || (identifier.isEmail ? identifier.value : identifier.value),
+        userId: finalUserId,
         passwordHash: hash,
         salt,
         verified: false,
@@ -170,8 +189,8 @@ export async function POST(req: Request) {
       }
       const isEmail = target.includes("@");
       const user = isEmail
-        ? await User.findOne({ email: target.toLowerCase() })
-        : await User.findOne({ phone: target });
+        ? await User.findOne({ email: normaliseEmail(target) })
+        : await User.findOne({ phone: normalisePhone(target) });
       if (!user) return Response.json({ error: "Account not found" }, { status: 404 });
       user.verified = true;
       await applyAdminBootstrap(user);
@@ -196,8 +215,8 @@ export async function POST(req: Request) {
       const target = parsed.isPhone || parsed.isEmail ? parsed.value : parsed.raw;
       const isEmail = target.includes("@");
       const user = isEmail
-        ? await User.findOne({ email: target.toLowerCase() })
-        : await User.findOne({ phone: target });
+        ? await User.findOne({ email: normaliseEmail(target) })
+        : await User.findOne({ phone: normalisePhone(target) });
       if (user && user.verified && type === "register") {
         return Response.json(
           { error: "This account is already verified. Please log in." },
@@ -289,8 +308,8 @@ export async function POST(req: Request) {
       }
       const isEmail = target.includes("@");
       const user = isEmail
-        ? await User.findOne({ email: target.toLowerCase() })
-        : await User.findOne({ phone: target });
+        ? await User.findOne({ email: normaliseEmail(target) })
+        : await User.findOne({ phone: normalisePhone(target) });
       if (!user) return Response.json({ error: "Account not found" }, { status: 404 });
       if (!user.verified) {
         user.verified = true;
@@ -316,17 +335,45 @@ export async function POST(req: Request) {
       if (!payload || !payload.email) {
         return Response.json({ error: "Google sign-in failed. Try again." }, { status: 401 });
       }
+      const email = normaliseEmail(String(payload.email || ""));
+      // 1. An account that already linked this exact Google identity.
+      // 2. A password account that has never linked Google, matched on the
+      //    verified Google email - this is the "adopt Google sign-in" path.
+      //    It is only safe while the account has no googleId: once linked,
+      //    the Google identity is authoritative and email must not be able
+      //    to redirect it. See the note below.
       let user = null;
+      let emailMatch = false;
       if (payload.sub) user = await User.findOne({ googleId: payload.sub });
-      if (!user && payload.email) {
-        user = await User.findOne({ email: String(payload.email).toLowerCase() });
+      if (!user && email) {
+        const candidate = await User.findOne({ email });
+        if (candidate) {
+          if (candidate.googleId && candidate.googleId !== payload.sub) {
+            // Someone controls this email on a Google account that is NOT
+            // the one linked here. Letting them in would hand the account
+            // (and its history) to a different person, so stop.
+            return Response.json(
+              {
+                error:
+                  "This email is already linked to a different Google account. Sign in with that account, or with your password.",
+              },
+              { status: 409 }
+            );
+          }
+          user = candidate;
+          emailMatch = true;
+        }
       }
       if (!user) {
         user = new User({
           id: "u_" + crypto.randomUUID(),
           name: payload.name || "Student",
-          email: String(payload.email).toLowerCase(),
-          userId: String(payload.email).toLowerCase(),
+          email,
+          // Same clean derived id as every other signup path, so a Google
+          // user never ends up with an id containing "@".
+          userId: await uniqueUserId(email, async (c) =>
+            Boolean(await User.findOne({ userId: c }).select("id").lean())
+          ),
           googleId: payload.sub || "",
           avatar: payload.picture || "",
           verified: true,
@@ -335,8 +382,11 @@ export async function POST(req: Request) {
         });
         await applyAdminBootstrap(user);
         await user.save();
-      } else if (!user.verified || (payload.sub && user.googleId !== payload.sub)) {
-        if (payload.sub) user.googleId = payload.sub;
+      } else if (!user.verified || (emailMatch && payload.sub && !user.googleId)) {
+        // Link a password account to Google for the first time. Only ever
+        // fills an empty googleId - an existing link is never overwritten,
+        // or a changed email address could rebind someone else's identity.
+        if (payload.sub && !user.googleId) user.googleId = payload.sub;
         user.verified = true;
         if (payload.picture && !user.avatar) user.avatar = payload.picture;
         await applyAdminBootstrap(user);
@@ -349,8 +399,13 @@ export async function POST(req: Request) {
   }
 
   /* ---------------- me / profile / change-password ---------------- */
-  // These three need a signed-in caller; the payload lookup happens once.
-  if (action === "me" || action === "profile" || action === "change-password") {
+  // These need a signed-in caller; the payload lookup happens once.
+  if (
+    action === "me" ||
+    action === "profile" ||
+    action === "change-password" ||
+    action === "request-contact"
+  ) {
     const auth = await requireAuth(req);
     if (auth instanceof Response) return auth;
     const dbDown = await requireDb();
@@ -378,6 +433,72 @@ export async function POST(req: Request) {
             (user as any)[field] = value;
           }
         }
+        await user.save();
+        return Response.json({ ok: true, user: toPublicUser(user) });
+      }
+
+      /* ---------------- request-contact: ask an admin to change it ----------------
+         Phone and email are login identifiers, so they cannot simply be
+         edited here. The student proposes a value; nothing changes until
+         an admin approves it through the same checks the edit form uses.
+
+         This is deliberately NOT an OTP flow: there is no SMS/email
+         provider wired up in this app yet (dispatchOtp only writes a row
+         and logs the code), so "verify the new number" would prove
+         nothing. Once a real sender exists, auto-approve after
+         verification is the natural next step. */
+      if (action === "request-contact") {
+        const field = String(body.field || "");
+        if (field !== "phone" && field !== "email") {
+          return Response.json({ error: "field must be 'phone' or 'email'" }, { status: 400 });
+        }
+        if (user.contactRequest?.status === "pending") {
+          return Response.json(
+            { error: "You already have a change waiting for review" },
+            { status: 409 }
+          );
+        }
+        // On a Google account the email is Google's to own. Say so now
+        // rather than letting the student wait for a refusal.
+        if (field === "email" && user.googleId) {
+          return Response.json(
+            { error: "This account signs in with Google, so its email cannot be changed." },
+            { status: 400 }
+          );
+        }
+        const value =
+          field === "phone" ? normalisePhone(String(body.value || "")) : normaliseEmail(String(body.value || ""));
+        const valid = field === "phone" ? isValidPhone(value) : isValidEmail(value);
+        if (!valid) {
+          return Response.json(
+            { error: field === "phone" ? "Enter a valid phone number" : "Enter a valid email address" },
+            { status: 400 }
+          );
+        }
+        if (value === user[field]) {
+          return Response.json(
+            { error: `That is already your ${field}` },
+            { status: 400 }
+          );
+        }
+        // Catch an obvious clash now so the student is not left waiting
+        // for an admin to reject it. The approval re-checks this too,
+        // since someone else may claim the number in between.
+        const clash = await User.findOne({ [field]: value, id: { $ne: user.id } })
+          .select("id")
+          .lean();
+        if (clash) {
+          return Response.json(
+            { error: `That ${field} is already registered to another account` },
+            { status: 409 }
+          );
+        }
+        user.contactRequest = {
+          field,
+          value,
+          status: "pending",
+          submittedAt: new Date(),
+        };
         await user.save();
         return Response.json({ ok: true, user: toPublicUser(user) });
       }

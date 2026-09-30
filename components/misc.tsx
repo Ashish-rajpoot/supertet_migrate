@@ -3,13 +3,15 @@
 /* ===========================================================
    components/misc.tsx - small shared bits: page shell, stat
    cards, empty states, difficulty/subject badges, footer.
-   The language selector and theme cycler live here, in the
-   footer, so the top bar stays focused on navigation.
+
+   Every display preference (text size, colour theme, language)
+   lives in the floating accessibility dock, so the footer only
+   carries the link that brings a dismissed dock back.
    =========================================================== */
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "cn";
-import { Accessibility, Inbox, Mail, MonitorSmartphone, Moon, Sun } from "lucide-react";
+import { Accessibility, Inbox, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,37 +23,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useLang, useSettings, type ThemeMode } from "./providers";
-import { T, useT, type StringKey } from "@/lib/i18n/t";
+import { useLang, useSettings } from "./providers";
+import { T, useT } from "@/lib/i18n/t";
 
-/* ---------------- language + theme (footer) ---------------- */
-const THEME_ORDER: ThemeMode[] = ["auto", "light", "dark"];
-const THEME_ICON = { auto: MonitorSmartphone, light: Sun, dark: Moon } as const;
-const THEME_LABEL: Record<ThemeMode, StringKey> = {
-  auto: "theme.auto",
-  light: "theme.light",
-  dark: "theme.dark",
-};
-
-/** Cycles auto -> light -> dark. */
-export function ThemeToggle({ className }: { className?: string }) {
-  const { themeMode, setThemeMode } = useSettings();
-  const { t } = useT();
-  const Icon = THEME_ICON[themeMode];
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      className={className}
-      title={t("theme.current", { mode: t(THEME_LABEL[themeMode]) })}
-      aria-label={t("theme.aria", { mode: t(THEME_LABEL[themeMode]) })}
-      onClick={() => setThemeMode(THEME_ORDER[(THEME_ORDER.indexOf(themeMode) + 1) % 3])}
-    >
-      <Icon />
-      <T k={THEME_LABEL[themeMode]} />
-    </Button>
-  );
-}
+/* ---------------- display preferences ----------------
+   The theme, the text size and the language all live in the floating
+   accessibility dock (components/a11y-widget.tsx). The footer only
+   keeps the link that brings the dock back when it has been
+   dismissed, so there is exactly one place to change how the app
+   looks and reads - and no second copy of the theme list to fall out
+   of step. */
 
 /** Hindi / English / both, for every bilingual field. */
 export function LangSelect({ compact = false }: { compact?: boolean }) {
@@ -199,13 +180,9 @@ export function SiteFooter() {
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-4 px-4 text-center">
         <p className="text-sm text-muted-foreground">{t("footer.tagline")}</p>
 
-        {/* Language + theme preferences */}
+        {/* Display preferences: everything lives in the accessibility dock,
+            so the footer only needs a way back to it once dismissed. */}
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <span className="text-xs text-muted-foreground">{t("footer.language")}</span>
-          <LangSelect />
-          <ThemeToggle />
-          {/* Only when the floating button is hidden: this is how it returns,
-              so dismissing it is never a dead end. */}
           {dockHidden ? (
             <Button
               variant="link"

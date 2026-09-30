@@ -49,6 +49,7 @@ import { useAuth } from "@/components/providers";
 import { T, useT, type StringKey, type Vars } from "@/lib/i18n/t";
 import { checkServerStatus, type ServerStatus } from "@/lib/client/sync";
 import { createUser, deleteUser, listUsers, updateUser } from "@/lib/client/auth-client";
+import { EMAIL_MAX, PHONE_MAX, formatPhone } from "@/lib/contact";
 import { fmtDate } from "@/lib/client/util";
 import type { PublicUser } from "@/lib/types";
 
@@ -78,11 +79,21 @@ const EMPTY_FORM: FormState = {
 };
 
 /** Small labelled control wrapper for the dialog form. */
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  /** Optional muted note under the control, e.g. why a field is locked. */
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
     <div className="grid gap-1.5">
       <span className="text-sm font-medium">{label}</span>
       {children}
+      {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
     </div>
   );
 }
@@ -163,25 +174,39 @@ function UserFormDialog({
                 type="email"
                 value={form.email}
                 onChange={(e) => set("email", e.target.value)}
-                maxLength={120}
+                maxLength={EMAIL_MAX}
                 autoComplete="off"
               />
             </Field>
-            <Field label={t("users.field.phone")}>
+            <Field
+              label={t("users.field.phone")}
+              hint={form.phone.trim() ? formatPhone(form.phone) : undefined}
+            >
               <Input
                 value={form.phone}
                 onChange={(e) => set("phone", e.target.value)}
-                maxLength={20}
+                maxLength={PHONE_MAX}
+                inputMode="tel"
+                placeholder="98765 43210"
                 autoComplete="off"
               />
             </Field>
           </div>
-          <Field label={t("users.field.userId")}>
+          {/* Set once, at creation. The server rejects a change even from
+              an admin, because attempts and progress are keyed off it -
+              so the field is locked here rather than offering a control
+              that would fail on save. */}
+          <Field
+            label={t("users.field.userId")}
+            hint={user ? t("users.field.userIdLocked") : undefined}
+          >
             <Input
               value={form.userId}
               onChange={(e) => set("userId", e.target.value)}
               maxLength={30}
               autoComplete="off"
+              readOnly={Boolean(user)}
+              className={user ? "bg-muted text-muted-foreground" : undefined}
             />
           </Field>
           <Field label={user ? t("users.field.newPassword") : t("users.field.password")}>
@@ -274,6 +299,16 @@ function paymentPending(u: PublicUser): boolean {
   return u.payment?.status === "pending";
 }
 
+/** Does the account have a contact change an admin still has to decide? */
+function contactPending(u: PublicUser): boolean {
+  return u.contactRequest?.status === "pending";
+}
+
+/** "Mobile number" / "Email", for showing what a request wants to change. */
+function contactFieldLabel(field: "phone" | "email"): string {
+  return field === "phone" ? "Mobile number" : "Email";
+}
+
 /** Does the account enjoy full access right now (admin grant or paid plan)? */
 function hasPaidAccess(u: PublicUser): boolean {
   return Boolean(u.unlimited) || expiryOf(u) > 0;
@@ -307,6 +342,8 @@ function PlanRow({
   roleBadge,
   onApprove,
   onReject,
+  onApproveContact,
+  onRejectContact,
   onUnlimited,
   onEdit,
   onDelete,
@@ -317,6 +354,9 @@ function PlanRow({
   roleBadge: StringKey;
   onApprove: () => void;
   onReject: () => void;
+  /** Apply / dismiss a pending phone or email change. */
+  onApproveContact: () => void;
+  onRejectContact: () => void;
   onUnlimited: (value: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -333,7 +373,62 @@ function PlanRow({
       <TableCell>
         <div className="text-sm">{u.email || u.phone || "—"}</div>
         {u.email && u.phone ? (
-          <div className="text-xs text-muted-foreground">{u.phone}</div>
+          <div className="text-xs text-muted-foreground">{formatPhone(u.phone)}</div>
+        ) : null}
+        {/* A pending change sits alongside the current value: approving it
+            replaces the number/address, it does not add a second one. */}
+        {u.contactRequest ? (
+          <div className="mt-1 flex flex-col items-start gap-1">
+            <span
+              className={
+                u.contactRequest.status === "pending"
+                  ? "text-xs font-medium text-amber-600 dark:text-amber-500"
+                  : "text-xs text-muted-foreground"
+              }
+            >
+              {t("users.contact.want", {
+                field: contactFieldLabel(u.contactRequest.field),
+                value:
+                  u.contactRequest.field === "phone"
+                    ? formatPhone(u.contactRequest.value)
+                    : u.contactRequest.value,
+              })}
+              {u.contactRequest.status !== "pending" ? (
+                <span className="ml-1">
+                  (
+                  {t(
+                    u.contactRequest.status === "approved"
+                      ? "contact.approved"
+                      : "contact.rejected",
+                  )}
+                  )
+                </span>
+              ) : null}
+            </span>
+            {u.contactRequest.status === "pending" ? (
+              <span className="inline-flex gap-1">
+                <Button
+                  size="xs"
+                  onClick={onApproveContact}
+                  disabled={locked}
+                  aria-label={t("users.contact.approve")}
+                  title={t("users.contact.approve")}
+                >
+                  <Check /> {t("users.contact.approve")}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="destructive"
+                  onClick={onRejectContact}
+                  disabled={locked}
+                  aria-label={t("users.contact.reject")}
+                  title={t("users.contact.reject")}
+                >
+                  <X /> {t("users.contact.reject")}
+                </Button>
+              </span>
+            ) : null}
+          </div>
         ) : null}
       </TableCell>
       <TableCell>
@@ -411,32 +506,43 @@ function PlanRow({
         {joinedOf(u)}
       </TableCell>
       <TableCell className="text-right whitespace-nowrap">
-        {self ? (
-          <span className="text-xs text-muted-foreground">—</span>
-        ) : (
-          <span className="inline-flex gap-1">
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              asChild
-              aria-label={t("users.viewResults")}
-              title={t("users.viewResults")}
-              disabled={locked}
+        {/* The self guard is only about deleting: an admin can edit
+            their own row (including their own phone number), the server
+            refuses to let anyone delete themselves. Hiding the whole
+            button group left an admin unable to fix their own contact
+            details. */}
+        <span className="inline-flex gap-1">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            asChild
+            aria-label={t("users.viewResults")}
+            title={t("users.viewResults")}
+            disabled={locked}
+          >
+            <Link href={`/progress?userId=${encodeURIComponent(u.id)}`}>
+              <TrendingUp />
+            </Link>
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("users.edit")}
+            title={t("users.edit")}
+            disabled={locked}
+            onClick={onEdit}
+          >
+            <Pencil />
+          </Button>
+          {self ? (
+            <span
+              className="inline-flex size-8 items-center justify-center text-xs text-muted-foreground"
+              title={t("users.cannotDeleteSelf")}
+              aria-label={t("users.cannotDeleteSelf")}
             >
-              <Link href={`/progress?userId=${encodeURIComponent(u.id)}`}>
-                <TrendingUp />
-              </Link>
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={t("users.edit")}
-              title={t("users.edit")}
-              disabled={locked}
-              onClick={onEdit}
-            >
-              <Pencil />
-            </Button>
+              —
+            </span>
+          ) : (
             <Button
               size="icon-sm"
               variant="ghost"
@@ -448,8 +554,8 @@ function PlanRow({
             >
               <Trash2 />
             </Button>
-          </span>
-        )}
+          )}
+        </span>
       </TableCell>
     </TableRow>
   );
@@ -502,21 +608,33 @@ export default function UsersPage() {
     (u: PublicUser) => {
       const q = query.trim().toLowerCase();
       if (!q) return true;
-      return [u.name, u.email, u.phone, u.userId].some((s) =>
-        String(s || "").toLowerCase().includes(q)
-      );
+      // Include the value inside a pending request, so an admin can find
+      // a student by the NEW number they asked for - the current one may
+      // be the thing that is wrong.
+      return [
+        u.name,
+        u.email,
+        u.phone,
+        u.userId,
+        u.contactRequest?.value,
+      ].some((s) => String(s || "").toLowerCase().includes(q));
     },
     [query]
   );
 
-  const pendingCount = useMemo(() => users.filter(paymentPending).length, [users]);
+  const pendingCount = useMemo(
+    () => users.filter((u) => paymentPending(u) || contactPending(u)).length,
+    [users]
+  );
   const subscriberCount = useMemo(() => users.filter(hasPaidAccess).length, [users]);
 
   const shown = useMemo(
     () =>
       users.filter((u) => {
         if (!matchesQuery(u)) return false;
-        if (filter === "pending") return paymentPending(u);
+        // "Pending" means anything waiting on an admin, not only payments -
+        // otherwise a contact request is invisible while this filter is on.
+        if (filter === "pending") return paymentPending(u) || contactPending(u);
         if (filter === "subscribers") return hasPaidAccess(u);
         return true;
       }),
@@ -613,6 +731,32 @@ export default function UsersPage() {
       const updated = await updateUser(u.id, { paymentDecision: "approved" });
       setUsers((list) => list.map((x) => (x.id === updated.id ? updated : x)));
       toast.success(t("users.payment.approved"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  /* ---------------- contact change actions ---------------- */
+
+  /**
+   * Apply a pending phone/email change. The server re-validates on
+   * approval, so this can legitimately fail (the number may have been
+   * claimed by someone else in the meantime) - the request then stays
+   * pending and the admin can set the value by hand from the edit form.
+   */
+  async function decideContact(u: PublicUser, decision: "approved" | "rejected") {
+    setRowBusy(u.id);
+    try {
+      const updated = await updateUser(u.id, { contactDecision: decision });
+      setUsers((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+      const field = updated.contactRequest?.field ?? "phone";
+      toast.success(
+        t(decision === "approved" ? "users.contact.approved" : "users.contact.rejected", {
+          field: contactFieldLabel(field),
+        })
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     } finally {
@@ -811,6 +955,8 @@ export default function UsersPage() {
                   roleBadge={roleBadgeKey(u)}
                   onApprove={() => void approvePayment(u)}
                   onReject={() => setRejecting(u)}
+                  onApproveContact={() => void decideContact(u, "approved")}
+                  onRejectContact={() => void decideContact(u, "rejected")}
                   onUnlimited={(v) => void toggleUnlimited(u, v)}
                   onEdit={() => setEditUser(u)}
                   onDelete={() => setDeleting(u)}

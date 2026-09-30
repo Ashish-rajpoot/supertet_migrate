@@ -38,9 +38,11 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Matches the new light and dark --background tokens in globals.css, so
+  // the mobile browser chrome follows the theme instead of the old blue.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#2f6df6" },
-    { media: "(prefers-color-scheme: dark)", color: "#0e1628" },
+    { media: "(prefers-color-scheme: light)", color: "#f6fbfc" },
+    { media: "(prefers-color-scheme: dark)", color: "#062a30" },
   ],
 };
 

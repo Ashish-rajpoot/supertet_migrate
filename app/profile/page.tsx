@@ -2,18 +2,26 @@
 
 /* ===========================================================
    app/profile/page.tsx - the signed-in student's own account
-   Port of js/profile.js. Name and study details can be edited;
-   email, phone and the login id are identity fields and stay
-   read-only.
+   Port of js/profile.js. Name and study details can be edited.
+   The user ID is permanent. The phone and email identify the
+   account, so they change by request: the student proposes a value
+   and an admin approves it (see RequestChangeDialog).
    =========================================================== */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BadgeCheck, Lock } from "lucide-react";
+import { BadgeCheck, Loader2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,9 +30,17 @@ import { AuthDialog } from "@/components/auth-dialog";
 import { PageShell } from "@/components/misc";
 import { SubscriptionCard } from "@/components/subscription-card";
 import { useAuth } from "@/components/providers";
-import { changePassword, logout, roleLabel, updateProfile } from "@/lib/client/auth-client";
+import {
+  changePassword,
+  logout,
+  requestContactChange,
+  roleLabel,
+  updateProfile,
+} from "@/lib/client/auth-client";
+import { EMAIL_MAX, PHONE_MAX, formatPhone, normaliseEmail } from "@/lib/contact";
 import { checkServerStatus, type ServerStatus } from "@/lib/client/sync";
-import type { PublicUser } from "@/lib/types";
+import { useT } from "@/lib/i18n/t";
+import type { ContactRequest, PublicUser } from "@/lib/types";
 
 /** Always the first letter of the name: works even if the photo URL fails. */
 function initialOf(user: PublicUser): string {
@@ -36,6 +52,9 @@ export default function ProfilePage() {
   const router = useRouter();
   const [server, setServer] = useState<ServerStatus>({ online: false, mongo: false });
   const [loginOpen, setLoginOpen] = useState(false);
+  // Which contact field the "request a change" dialog is open for.
+  const [askPhone, setAskPhone] = useState(false);
+  const [askEmail, setAskEmail] = useState(false);
 
   // Editable details live in a keyed child (see DetailsForm) so switching
   // accounts remounts the form with fresh values.
@@ -155,18 +174,40 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* ---------------- identity (locked) ---------------- */}
+      {/* ---------------- identity (locked, changeable by request) ---------------- */}
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <h3 className="font-semibold">Account identity</h3>
           <p className="text-sm text-muted-foreground">
-            These identify your account and cannot be changed here. Ask the admin if something is
-            wrong.
+            Your user ID never changes. The mobile number and email identify your account, so send a
+            request and an admin will approve it.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <LockedRow label="User ID" value={user.userId || "-"} />
-            <LockedRow label="Email" value={user.email || "not set"} />
-            <LockedRow label="Phone number" value={user.phone || "not set"} />
+            <LockedRow
+              label="Email"
+              value={user.email || "not set"}
+              action={
+                <RequestAction
+                  field="email"
+                  request={user.contactRequest}
+                  disabled={offline}
+                  onOpen={() => setAskEmail(true)}
+                />
+              }
+            />
+            <LockedRow
+              label="Phone number"
+              value={user.phone ? formatPhone(user.phone) : "not set"}
+              action={
+                <RequestAction
+                  field="phone"
+                  request={user.contactRequest}
+                  disabled={offline}
+                  onOpen={() => setAskPhone(true)}
+                />
+              }
+            />
             <LockedRow
               label="Verified"
               value={user.verified ? "Yes" : "No"}
@@ -175,6 +216,21 @@ export default function ProfilePage() {
           </div>
         </CardContent>
       </Card>
+
+      <RequestChangeDialog
+        field="phone"
+        open={askPhone}
+        onOpenChange={setAskPhone}
+        disabled={offline}
+        onDone={refresh}
+      />
+      <RequestChangeDialog
+        field="email"
+        open={askEmail}
+        onOpenChange={setAskEmail}
+        disabled={offline}
+        onDone={refresh}
+      />
 
       {/* ---------------- editable details ---------------- */}
       <DetailsForm key={user.id} user={user} disabled={offline} onSaved={refresh} />
@@ -376,18 +432,164 @@ function LockedRow({
   label,
   value,
   icon,
+  action,
 }: {
   label: string;
   value: string;
   icon?: ReactNode;
+  /** Optional trailing control, e.g. "Request change". */
+  action?: ReactNode;
 }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border p-3">
       <span className="text-muted-foreground">{icon ?? <Lock className="size-4" />}</span>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="text-xs text-muted-foreground">{label}</div>
         <div className="truncate font-medium">{value}</div>
       </div>
+      {action}
     </div>
+  );
+}
+
+/**
+ * The trailing control on a contact row: a button to request a change,
+ * or the state of the request that is already in flight.
+ */
+function RequestAction({
+  field,
+  request,
+  disabled,
+  onOpen,
+}: {
+  field: "phone" | "email";
+  request: ContactRequest | null | undefined;
+  disabled: boolean;
+  onOpen: () => void;
+}) {
+  const { t } = useT();
+
+  // Only the field being changed blocks the button; a pending request
+  // for the phone must not stop the student asking about the email.
+  if (request?.status === "pending" && request.field === field) {
+    return (
+      <Badge variant="outline" className="shrink-0">
+        {t("contact.pending")}
+      </Badge>
+    );
+  }
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      className="shrink-0"
+      onClick={onOpen}
+      disabled={disabled}
+      title={t("contact.requestTitle")}
+    >
+      {t("contact.requestTitle")}
+    </Button>
+  );
+}
+
+/* ===========================================================
+   RequestChangeDialog - ask an admin to change the phone or email.
+
+   These are login identifiers, so they cannot be edited directly. The
+   student proposes a value and an admin approves it; nothing changes
+   on the account until then. Mirrors the subscription request flow.
+   =========================================================== */
+function RequestChangeDialog({
+  field,
+  open,
+  onOpenChange,
+  disabled,
+  onDone,
+}: {
+  field: "phone" | "email";
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  disabled: boolean;
+  onDone: () => void;
+}) {
+  const { t } = useT();
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const isPhone = field === "phone";
+
+  useEffect(() => {
+    if (open) {
+      setValue("");
+      setError("");
+    }
+  }, [open, field]);
+
+  async function send(e: FormEvent) {
+    e.preventDefault();
+    if (!value.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      await requestContactChange(field, value);
+      toast.success(t("contact.submitted"));
+      onOpenChange(false);
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t(isPhone ? "contact.phoneLabel" : "contact.emailLabel")}</DialogTitle>
+          <DialogDescription>{t(isPhone ? "contact.phoneBody" : "contact.emailBody")}</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={send} className="grid gap-3">
+          {error ? <ErrorNote message={error} /> : null}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`req-${field}`} className="text-xs">
+              {t(isPhone ? "contact.phoneLabel" : "contact.emailLabel")}
+            </Label>
+            <Input
+              id={`req-${field}`}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={t(isPhone ? "contact.placeholderPhone" : "contact.placeholderEmail")}
+              type={isPhone ? "tel" : "email"}
+              inputMode={isPhone ? "tel" : undefined}
+              autoComplete="off"
+              maxLength={isPhone ? PHONE_MAX : EMAIL_MAX}
+            />
+            {/* Show what will actually be stored, so separators and a
+                missing country code are visible before submitting. */}
+            {value.trim() ? (
+              <p className="text-xs text-muted-foreground">
+                {isPhone ? formatPhone(value) : normaliseEmail(value)}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={busy || !value.trim() || disabled}>
+              {busy ? <Loader2 className="animate-spin" /> : null} {t("contact.submit")}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

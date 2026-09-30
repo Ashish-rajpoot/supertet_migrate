@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { deriveUserId } from "@/lib/userid";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   login,
@@ -210,6 +211,9 @@ function SignupForm({ onNeedOtp }: { onNeedOtp: (c: OtpCtx) => void }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // The id the server will derive if the field is left blank. Purely
+  // cosmetic here: uniqueness is settled server-side.
+  const suggested = deriveUserId(identifier.trim());
 
   async function submit() {
     setBusy(true);
@@ -274,6 +278,16 @@ function SignupForm({ onNeedOtp }: { onNeedOtp: (c: OtpCtx) => void }) {
           value={userId}
           onChange={(e) => setUserId(e.target.value)}
         />
+        {/* Show the id that will actually be used, so the rule is never a
+            surprise. Left as the real part of the address, not a truncated
+            one - see lib/userid.ts. */}
+        <p className="text-xs text-muted-foreground">
+          {userId.trim()
+            ? `Your user ID will be "${userId.trim().toLowerCase()}"`
+            : suggested
+              ? `Leave blank to use "${suggested}"`
+              : "Leave blank to use the part of your email before @"}
+        </p>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="su-pw">Password (min 6 characters)</Label>
