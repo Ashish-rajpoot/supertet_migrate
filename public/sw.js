@@ -34,7 +34,7 @@
    previously poisoned cache is cleared.
    =========================================================== */
 
-const VERSION = "supertet-v3";
+const VERSION = "supertet-v4";
 const PRECACHE = `${VERSION}-precache`;
 const RUNTIME = `${VERSION}-runtime`;
 
@@ -44,6 +44,18 @@ const IMMUTABLE_PREFIXES = ["/_next/static/", "/icons/"];
 
 /* Mutable but needed offline. */
 const DYNAMIC_PREFIXES = ["/data/", "/templates/", "/manifest.webmanifest"];
+
+/* Read-only API calls the app genuinely needs with no network. Everything
+   else under /api/ stays uncached on purpose: it is per-user, short-lived
+   (session, access, status) or a write, and a stale copy of those is worse
+   than no copy at all.
+
+   /api/questions is the shared question bank and /api/subjects the syllabus
+   the admin published. Both are the same for every visitor, both are what
+   the offline test page needs, and both are served network-first: online a
+   fresh copy is always returned and the cache refreshed, offline the copy
+   this device downloaded earlier is used. */
+const API_CACHE_PATHS = ["/api/questions", "/api/subjects"];
 
 /** Headers Next.js uses to ask for a Flight payload instead of HTML. */
 const RSC_HEADERS = [
@@ -107,6 +119,16 @@ function startsWithAny(pathname, prefixes) {
   return prefixes.some((p) => pathname.startsWith(p));
 }
 
+/** One of the few read-only API paths listed in API_CACHE_PATHS. */
+function isCacheableApi(pathname) {
+  return API_CACHE_PATHS.indexOf(pathname.replace(/\/+$/, "")) !== -1;
+}
+
+/** Cached even when the caller asked for no-store (see shouldBypass). */
+function isCachedWhenNoStore(pathname) {
+  return startsWithAny(pathname, DYNAMIC_PREFIXES) || isCacheableApi(pathname);
+}
+
 /**
  * True when the service worker must keep its hands off this request.
  * Every true here is a request the browser answers itself, straight
@@ -117,8 +139,10 @@ function shouldBypass(req, url) {
   if (url.origin !== self.location.origin) return true;
 
   // API responses are per-user and short-lived - a cached one is worse
-  // than no cache at all.
-  if (url.pathname.startsWith("/api/")) return true;
+  // than no cache at all. Only the two read-only paths the app needs
+  // offline (the shared bank and the published syllabus) are allowed
+  // through; they are still served network-first.
+  if (url.pathname.startsWith("/api/") && !isCacheableApi(url.pathname)) return true;
 
   // The App Router addressing scheme: HTML vs Flight for one URL.
   if (url.searchParams.has("_rsc")) return true;
@@ -130,14 +154,15 @@ function shouldBypass(req, url) {
   if (url.pathname.startsWith("/__nextjs")) return true;
 
   // The page explicitly asked for a fresh copy. Honour that everywhere
-  // except the bundled offline bank (/data/, /templates/): those URLs are
-  // precached and served network-first by the handler below, so a fresh
-  // fetch still hits the network when online and only falls back to the
-  // cache when the network is unreachable. Without this exception every
-  // no-store fetch for the question bank bypasses the SW and fails offline
+  // except the bundled offline bank (/data/, /templates/) and the two
+  // read-only API paths: those URLs are precached / already cached and
+  // served network-first by the handler below, so a fresh fetch still
+  // hits the network when online and only falls back to the cache when
+  // the network is unreachable. Without this exception every no-store
+  // fetch for the question bank bypasses the SW and fails offline
   // even though the file is cached.
   if (req.cache === "reload" || req.cache === "no-cache") return true;
-  if (req.cache === "no-store" && !startsWithAny(url.pathname, DYNAMIC_PREFIXES)) return true;
+  if (req.cache === "no-store" && !isCachedWhenNoStore(url.pathname)) return true;
 
   // A ranged request would be stored truncated.
   if (req.headers.get("range")) return true;
@@ -161,7 +186,13 @@ function offlineResponse() {
 function remember(req, res) {
   if (!res || res.status !== 200 || res.type === "opaque") return Promise.resolve();
   const cc = res.headers.get("cache-control") || "";
-  if (cc.includes("private")) return Promise.resolve();
+  // The two allowlisted API paths carry public, identical-for-everyone data
+  // that the app needs offline, so a "private" marker on them - which is what
+  // a force-dynamic route gets - must not stop the copy being kept. Every
+  // other response is still left alone, so nothing per-user is ever stored.
+  if (cc.includes("private") && !isCacheableApi(new URL(req.url).pathname)) {
+    return Promise.resolve();
+  }
   let copy;
   try {
     copy = res.clone();
@@ -242,6 +273,14 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (startsWithAny(url.pathname, DYNAMIC_PREFIXES)) {
+    serveNetworkFirst(req, event);
+    return;
+  }
+
+  // The shared question bank and the published syllabus, when they are on
+  // this origin. Network first, so an online user always gets fresh data
+  // and the cache is refreshed for the next offline session.
+  if (isCacheableApi(url.pathname)) {
     serveNetworkFirst(req, event);
     return;
   }

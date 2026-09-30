@@ -14,14 +14,15 @@
    in sync.
    =========================================================== */
 
-/** Raw prompt with {{N}}, {{SUBJECT}}, {{TOPIC}}, {{DIFFICULTY}} and {{MEDIUM}} slots. */
+/** Raw prompt with {{N}}, {{SUBJECT}}, {{TOPIC}}, {{DIFFICULTY}}, {{COUNT_RULE}}, {{TOTAL}} and {{MEDIUM}} slots. */
 export const AI_PROMPT_TEMPLATE = `You write exam questions for "SuperTET Prep", a bilingual (Hindi + English) practice-test website for SuperTET / TET style teacher-eligibility exams.
 
 TASK
-Create exactly {{N}} new multiple-choice questions.
+Create exactly {{N}} new multiple-choice questions PER DIFFICULTY - {{TOTAL}} questions in all.
 - Subject: {{SUBJECT}}
 - Topic: {{TOPIC}} (if that is broad, cover several sub-topics inside it)
-- Difficulty: {{DIFFICULTY}} (must be one of: easy, medium, hard)
+- Difficulty: {{DIFFICULTY}} (each value must be one of: easy, medium, hard)
+- Count breakdown: {{COUNT_RULE}}
 - Medium: {{MEDIUM}}
 
 MEDIUM RULES (which language columns to fill)
@@ -38,7 +39,7 @@ id, subject, topic, difficulty, q_hi, q_en, opt1_hi, opt2_hi, opt3_hi, opt4_hi, 
 FIELD RULES
 - id: unique inside the array; only lowercase letters, digits and hyphens. For subject "Science" use science-001, science-002, ...
 - subject and topic: copy the Subject and Topic values above verbatim into every row.
-- difficulty: "easy", "medium" or "hard" only.
+- difficulty: "easy", "medium" or "hard" only. When TASK asks for several difficulties, spread the rows so the Count breakdown matches exactly.
 - q_hi / q_en: the question text, filled exactly as MEDIUM RULES demands (empty string "" for the language not used). Each filled field at most 200 characters.
 - opt1..opt4 (hi and en): exactly four options, in the same order in both columns when both are used, plausible and similar in length. Never use "all of the above", "none of the above" or "both A and B".
 - answer: only the letter of the correct option - "A", "B", "C" or "D" - matching its position (opt1 = A, opt2 = B, opt3 = C, opt4 = D). Exactly one option is correct. Spread the correct letters roughly evenly across the batch.
@@ -58,7 +59,7 @@ EXAMPLE (the exact shape - do not copy the content)
     "id": "gk-001",
     "subject": "{{SUBJECT}}",
     "topic": "{{TOPIC}}",
-    "difficulty": "{{DIFFICULTY}}",
+    "difficulty": "medium",
     "q_hi": "राष्ट्रीय युवा दिवस कब मनाया जाता है?",
     "q_en": "When is National Youth Day celebrated?",
     "opt1_hi": "10 जनवरी",
@@ -78,7 +79,7 @@ EXAMPLE (the exact shape - do not copy the content)
 
 The example shows the bilingual medium; for "Hindi" or "English" medium fill only the columns named in MEDIUM RULES and leave the others as empty strings "".
 
-Now output the JSON array with exactly {{N}} questions for {{SUBJECT}} / {{TOPIC}} (medium: {{MEDIUM}}). Remember: only the JSON array, nothing else.`;
+Now output the JSON array with exactly {{N}} questions per difficulty - {{TOTAL}} in all - for {{SUBJECT}} / {{TOPIC}} (medium: {{MEDIUM}}). Remember: only the JSON array, nothing else.`;
 
 /** Every placeholder the raw template understands. */
 export const AI_PROMPT_PLACEHOLDERS = [
@@ -86,6 +87,8 @@ export const AI_PROMPT_PLACEHOLDERS = [
   "{{SUBJECT}}",
   "{{TOPIC}}",
   "{{DIFFICULTY}}",
+  "{{COUNT_RULE}}",
+  "{{TOTAL}}",
   "{{MEDIUM}}",
 ];
 
@@ -93,12 +96,40 @@ export interface AiPromptInput {
   count?: number | string;
   subject?: string;
   topic?: string;
-  difficulty?: string;
+  /** One difficulty ("easy"), several as a comma string ("easy,hard") or a list (["easy", "hard"]). */
+  difficulty?: string | string[];
   medium?: string;
 }
 
+/** The three difficulties, always written in this order. */
+const DIFFICULTIES = ["easy", "medium", "hard"] as const;
+
+/**
+ * Keep only real difficulty names (case-insensitive) in easy -> medium -> hard
+ * order and drop duplicates. Blank or unrecognised input falls back to
+ * "medium", the classic default of the prompt.
+ */
+function normaliseDifficulties(input?: string | string[]): string[] {
+  const raw = Array.isArray(input) ? input : String(input ?? "").split(",");
+  const picked = new Set(
+    raw
+      .map((v) => String(v ?? "").trim().toLowerCase())
+      .filter((v) => (DIFFICULTIES as readonly string[]).includes(v))
+  );
+  const out = DIFFICULTIES.filter((d) => picked.has(d));
+  return out.length ? [...out] : ["medium"];
+}
+
+/** "easy" | "easy and hard" | "easy, medium and hard" */
+function difficultyList(diffs: string[]): string {
+  if (diffs.length === 1) return diffs[0];
+  return diffs.slice(0, -1).join(", ") + " and " + diffs[diffs.length - 1];
+}
+
 /** Fill the prompt with the user's choices (blank values fall back to safe defaults).
- *  medium: "Hindi" (default) | "English" | "Hindi + English". */
+ *  medium: "Hindi" (default) | "English" | "Hindi + English".
+ *  The count applies PER selected difficulty: 50 with easy + medium + hard
+ *  asked for 50 easy, 50 medium and 50 hard ({{TOTAL}} = 150). */
 export function buildAiPrompt(input: AiPromptInput = {}): string {
   let n = parseInt(String(input.count ?? ""), 10);
   if (!Number.isFinite(n)) n = 20;
@@ -106,8 +137,10 @@ export function buildAiPrompt(input: AiPromptInput = {}): string {
 
   const sub = String(input.subject ?? "").trim() || "General";
   const top = String(input.topic ?? "").trim() || "Mixed";
-  const diffRaw = String(input.difficulty ?? "").trim().toLowerCase();
-  const diff = ["easy", "medium", "hard"].includes(diffRaw) ? diffRaw : "medium";
+  const diffs = normaliseDifficulties(input.difficulty);
+  const diff = difficultyList(diffs);
+  const breakdown = diffs.map((d) => `${n} ${d}`).join(" + ");
+  const total = n * diffs.length;
   const medRaw = String(input.medium ?? "").trim();
   const med = ["Hindi", "English", "Hindi + English"].includes(medRaw) ? medRaw : "Hindi";
 
@@ -120,6 +153,10 @@ export function buildAiPrompt(input: AiPromptInput = {}): string {
     .join(top)
     .split("{{DIFFICULTY}}")
     .join(diff)
+    .split("{{COUNT_RULE}}")
+    .join(breakdown)
+    .split("{{TOTAL}}")
+    .join(String(total))
     .split("{{MEDIUM}}")
     .join(med);
 }

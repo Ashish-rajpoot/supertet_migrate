@@ -59,7 +59,12 @@ export async function GET() {
   if (dbDown) return dbDown;
   try {
     const subjects = await Subject.find({}).sort({ order: 1, name: 1 }).lean();
-    return Response.json({ subjects, count: subjects.length });
+    // Same reason as GET /api/questions: public data, so it may be kept for
+    // the offline visit instead of being marked private, no-store.
+    return Response.json(
+      { subjects, count: subjects.length },
+      { headers: { "Cache-Control": "public, max-age=60, stale-while-revalidate=300" } }
+    );
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : "Could not load subjects" },

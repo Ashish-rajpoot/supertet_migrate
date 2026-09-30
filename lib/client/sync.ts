@@ -8,9 +8,12 @@ import {
   getAuthToken,
   getAuthUser,
   getDeviceId,
+  getOutbox,
   getSettings,
   getSyncQueue,
+  setOutbox,
   setSyncQueue,
+  type OutboxItem,
 } from "./store";
 
 export interface ServerStatus {
@@ -102,6 +105,9 @@ async function errorFrom(res: Response, fallback: string): Promise<SyncError> {
   return err;
 }
 
+/** The HTTP status of a failed call, or undefined when it never got there. */
+const statusOf = (err: unknown): number | undefined => (err as SyncError | null)?.status;
+
 /**
  * Send an attempt to the backend. If offline, queue it in localStorage
  * for auto-retry (flushed on 'online' and on boot). A free-tier refusal
@@ -174,6 +180,67 @@ export async function flushQueue() {
     remaining: remaining.length,
     blocked,
   };
+}
+
+/**
+ * Replay the question outbox: every question change made while the shared
+ * bank was unreachable, in the order it was made. Called on boot and on the
+ * browser's "online" event, so edits made offline (or during a server
+ * restart) reach MongoDB as soon as the connection is back.
+ *
+ *   - a change the server accepts, or that is already true there
+ *     (deleting a row it never had), is done and forgotten
+ *   - a change the server refuses outright (4xx) is dropped, so one bad row
+ *     cannot wedge every later change behind it forever
+ *   - a change that could not be sent stays for the next attempt
+ *
+ * Every operation is idempotent (an upsert by id, a delete by id, a scope
+ * cascade by name), so a duplicate replay is harmless.
+ */
+export async function flushQuestionOutbox(): Promise<{
+  flushed: number;
+  remaining: number;
+  dropped: number;
+}> {
+  const queue = getOutbox();
+  if (!queue.length) return { flushed: 0, remaining: 0, dropped: 0 };
+  const remaining: OutboxItem[] = [];
+  let flushed = 0;
+  let dropped = 0;
+
+  for (const item of queue) {
+    try {
+      if (item.kind === "upsert") {
+        await pushQuestions([item.question]);
+      } else if (item.kind === "delete") {
+        try {
+          await deleteQuestion(item.id);
+        } catch (err) {
+          // 404 = the row is not in the shared bank, which is the state the
+          // delete wanted anyway.
+          if (statusOf(err) !== 404) throw err;
+        }
+      } else {
+        await deleteSubjectQuestions(item.subject, {
+          topic: item.topic,
+          mode: item.mode,
+          moveTo: item.moveTo,
+        });
+      }
+      flushed += 1;
+    } catch (err) {
+      const status = statusOf(err);
+      if (status && status >= 400 && status < 500) {
+        dropped += 1;
+        continue;
+      }
+      // Still offline, or the server is down: keep it for the next try.
+      remaining.push(item);
+    }
+  }
+
+  setOutbox(remaining);
+  return { flushed, remaining: remaining.length, dropped };
 }
 
 /** Shared question bank - null when the server is unreachable. */

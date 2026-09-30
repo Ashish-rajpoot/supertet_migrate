@@ -18,7 +18,13 @@ export async function GET(req: Request) {
     }
     const limit = Math.min(parseInt(q.get("limit") || "5000", 10) || 5000, 10000);
     const questions = await Question.find(filter).limit(limit).lean();
-    return Response.json({ questions, count: questions.length });
+    // Public read with no per-user data, so say so: a `force-dynamic` route
+    // would otherwise be marked `private, no-store` and the offline cache
+    // (public/sw.js) would refuse to keep a copy for the next offline visit.
+    return Response.json(
+      { questions, count: questions.length },
+      { headers: { "Cache-Control": "public, max-age=60, stale-while-revalidate=300" } }
+    );
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : "Could not load questions" },

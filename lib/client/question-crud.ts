@@ -14,10 +14,12 @@ import type { Question } from "@/lib/types";
 import {
   addQuestions,
   deleteSubjectOnDevice,
+  enqueueOutbox,
   removeQuestion,
   renameSubjectOnDevice,
   renameTopicOnDevice,
   updateQuestion,
+  type OutboxItem,
 } from "./store";
 import {
   countSubjectQuestions,
@@ -42,6 +44,14 @@ export type ServerOutcome =
 export interface CrudContext {
   /** Ask the shared bank too? Pages answer with `mongo && canAddQuestions()`. */
   server: boolean;
+  /**
+   * May this account write to the shared bank at all? Used only to decide
+   * whether a change that could not be sent is worth keeping for the next
+   * reconnect: a reader must not fill the outbox with writes the server
+   * would only refuse. Defaults to `server`, so a caller that omits it
+   * behaves exactly as before.
+   */
+  mayWrite?: boolean;
 }
 
 /** A subject - optionally one topic inside it - that a cascade applies to. */
@@ -65,6 +75,25 @@ const statusOf = (err: unknown): number | undefined =>
 function outcomeOf(err: unknown): ServerOutcome {
   if (statusOf(err) === 404) return { status: "missing" };
   return { status: "error", message: messageOf(err) };
+}
+
+/**
+ * True when the request never reached the server (no HTTP status came
+ * back) - the device is offline or the API is unreachable. A status means
+ * the server did answer, so a refusal is a refusal, not a network problem.
+ */
+function isOffline(err: unknown): boolean {
+  return statusOf(err) === undefined;
+}
+
+/**
+ * Keep a change for the next reconnect. Skipped when this account may not
+ * write anyway, so a plain reader never queues anything. The device copy is
+ * already saved, so nothing is lost either way.
+ */
+function queueForLater(item: OutboxItem, ctx: CrudContext): void {
+  if (ctx.mayWrite === false) return;
+  enqueueOutbox(item);
 }
 
 /** A blank draft, prefilled wherever the caller already knows the answer. */
@@ -115,7 +144,11 @@ export function outcomeNote(outcome: ServerOutcome, noun = "The question"): stri
 /** Add a brand-new question: on this device, then in the shared bank. */
 export async function createQuestion(q: Question, ctx: CrudContext): Promise<ServerOutcome> {
   addQuestions([q]);
-  if (!ctx.server) return { status: "off" };
+  const item: OutboxItem = { kind: "upsert", id: String(q.id), question: q, at: Date.now() };
+  if (!ctx.server) {
+    queueForLater(item, ctx);
+    return { status: "off" };
+  }
   try {
     const res = await pushQuestions([q]);
     const invalid = res?.invalid || [];
@@ -126,6 +159,11 @@ export async function createQuestion(q: Question, ctx: CrudContext): Promise<Ser
     }
     return { status: "ok" };
   } catch (err) {
+    // No status = the request never got there. Keep it for the reconnect.
+    if (isOffline(err)) {
+      queueForLater(item, ctx);
+      return { status: "off" };
+    }
     return outcomeOf(err);
   }
 }
@@ -137,11 +175,21 @@ export async function createQuestion(q: Question, ctx: CrudContext): Promise<Ser
  */
 export async function saveQuestion(q: Question, ctx: CrudContext): Promise<ServerOutcome> {
   if (!updateQuestion(q.id, q)) addQuestions([q]);
-  if (!ctx.server) return { status: "off" };
+  const item: OutboxItem = { kind: "upsert", id: String(q.id), question: q, at: Date.now() };
+  if (!ctx.server) {
+    queueForLater(item, ctx);
+    return { status: "off" };
+  }
   try {
     await updateServerQuestion(q.id, questionPatch(q));
     return { status: "ok" };
   } catch (err) {
+    // A 404 is "not in the shared bank", which an upsert can still fix, so
+    // that one is queued too. Anything else the server said is final.
+    if (isOffline(err) || statusOf(err) === 404) {
+      queueForLater(item, ctx);
+      return isOffline(err) ? { status: "off" } : { status: "missing" };
+    }
     return outcomeOf(err);
   }
 }
@@ -153,11 +201,19 @@ export async function saveQuestion(q: Question, ctx: CrudContext): Promise<Serve
  */
 export async function deleteQuestion(id: string, ctx: CrudContext): Promise<ServerOutcome> {
   removeQuestion(id);
-  if (!ctx.server) return { status: "off" };
+  const item: OutboxItem = { kind: "delete", id: String(id), at: Date.now() };
+  if (!ctx.server) {
+    queueForLater(item, ctx);
+    return { status: "off" };
+  }
   try {
     await deleteServerQuestion(id);
     return { status: "ok" };
   } catch (err) {
+    if (isOffline(err)) {
+      queueForLater(item, ctx);
+      return { status: "off" };
+    }
     return outcomeOf(err);
   }
 }
@@ -195,7 +251,24 @@ export async function applyScopeToQuestions(
       });
       touched += res.count ?? res.moved ?? 0;
     } catch (err) {
-      return { ok: false, touched, error: messageOf(err) };
+      // Offline: remember the cascade and still do the local half now, so
+      // the two banks can never end up half-applied in the other direction.
+      // A refusal that came back from the server is final, though.
+      if (isOffline(err)) {
+        queueForLater(
+          {
+            kind: "scope",
+            subject: scope.subject,
+            topic: scope.topic,
+            mode: choice.mode,
+            moveTo: moveTo || undefined,
+            at: Date.now(),
+          },
+          ctx
+        );
+      } else {
+        return { ok: false, touched, error: messageOf(err) };
+      }
     }
   }
   if (choice.mode === "move") {
