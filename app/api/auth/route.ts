@@ -1,5 +1,11 @@
-import crypto from "node:crypto";
+﻿import crypto from "node:crypto";
 import { isValidUserId, uniqueUserId } from "@/lib/userid";
+import {
+  isValidEmail,
+  isValidPhone,
+  normaliseEmail,
+  normalisePhone,
+} from "@/lib/contact";
 import { Otp, User } from "@/lib/server/models";
 import {
   generateOtp,
@@ -34,13 +40,17 @@ const PROFILE_FIELDS = ["name", "avatar", "classLevel", "city", "school", "about
 
 function parseIdentifier(input = "") {
   const str = String(input).trim();
-  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str);
-  const isPhone = /^\+?[0-9]{10,14}$/.test(str.replace(/[\s-]/g, ""));
+  const email = normaliseEmail(str);
+  const phone = normalisePhone(str);
+  const isEmail = isValidEmail(email);
+  const isPhone = isValidPhone(phone);
   return {
     raw: str,
     isEmail,
     isPhone,
-    value: isPhone ? str.replace(/[\s-]/g, "") : isEmail ? str.toLowerCase() : str,
+    // Canonical form, so the value stored matches the one every later
+    // lookup will search for. See lib/contact.ts.
+    value: isPhone ? phone : isEmail ? email : str,
   };
 }
 
@@ -179,8 +189,8 @@ export async function POST(req: Request) {
       }
       const isEmail = target.includes("@");
       const user = isEmail
-        ? await User.findOne({ email: target.toLowerCase() })
-        : await User.findOne({ phone: target });
+        ? await User.findOne({ email: normaliseEmail(target) })
+        : await User.findOne({ phone: normalisePhone(target) });
       if (!user) return Response.json({ error: "Account not found" }, { status: 404 });
       user.verified = true;
       await applyAdminBootstrap(user);
@@ -205,8 +215,8 @@ export async function POST(req: Request) {
       const target = parsed.isPhone || parsed.isEmail ? parsed.value : parsed.raw;
       const isEmail = target.includes("@");
       const user = isEmail
-        ? await User.findOne({ email: target.toLowerCase() })
-        : await User.findOne({ phone: target });
+        ? await User.findOne({ email: normaliseEmail(target) })
+        : await User.findOne({ phone: normalisePhone(target) });
       if (user && user.verified && type === "register") {
         return Response.json(
           { error: "This account is already verified. Please log in." },
@@ -298,8 +308,8 @@ export async function POST(req: Request) {
       }
       const isEmail = target.includes("@");
       const user = isEmail
-        ? await User.findOne({ email: target.toLowerCase() })
-        : await User.findOne({ phone: target });
+        ? await User.findOne({ email: normaliseEmail(target) })
+        : await User.findOne({ phone: normalisePhone(target) });
       if (!user) return Response.json({ error: "Account not found" }, { status: 404 });
       if (!user.verified) {
         user.verified = true;
@@ -328,10 +338,10 @@ export async function POST(req: Request) {
       let user = null;
       if (payload.sub) user = await User.findOne({ googleId: payload.sub });
       if (!user && payload.email) {
-        user = await User.findOne({ email: String(payload.email).toLowerCase() });
+        user = await User.findOne({ email: normaliseEmail(String(payload.email || "")) });
       }
       if (!user) {
-        const email = String(payload.email).toLowerCase();
+        const email = normaliseEmail(String(payload.email || ""));
         user = new User({
           id: "u_" + crypto.randomUUID(),
           name: payload.name || "Student",

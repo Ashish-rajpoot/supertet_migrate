@@ -49,6 +49,7 @@ import { useAuth } from "@/components/providers";
 import { T, useT, type StringKey, type Vars } from "@/lib/i18n/t";
 import { checkServerStatus, type ServerStatus } from "@/lib/client/sync";
 import { createUser, deleteUser, listUsers, updateUser } from "@/lib/client/auth-client";
+import { EMAIL_MAX, PHONE_MAX, formatPhone } from "@/lib/contact";
 import { fmtDate } from "@/lib/client/util";
 import type { PublicUser } from "@/lib/types";
 
@@ -173,15 +174,20 @@ function UserFormDialog({
                 type="email"
                 value={form.email}
                 onChange={(e) => set("email", e.target.value)}
-                maxLength={120}
+                maxLength={EMAIL_MAX}
                 autoComplete="off"
               />
             </Field>
-            <Field label={t("users.field.phone")}>
+            <Field
+              label={t("users.field.phone")}
+              hint={form.phone.trim() ? formatPhone(form.phone) : undefined}
+            >
               <Input
                 value={form.phone}
                 onChange={(e) => set("phone", e.target.value)}
-                maxLength={20}
+                maxLength={PHONE_MAX}
+                inputMode="tel"
+                placeholder="98765 43210"
                 autoComplete="off"
               />
             </Field>

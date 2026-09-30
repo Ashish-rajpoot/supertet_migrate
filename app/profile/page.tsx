@@ -23,6 +23,7 @@ import { PageShell } from "@/components/misc";
 import { SubscriptionCard } from "@/components/subscription-card";
 import { useAuth } from "@/components/providers";
 import { changePassword, logout, roleLabel, updateProfile } from "@/lib/client/auth-client";
+import { formatPhone } from "@/lib/contact";
 import { checkServerStatus, type ServerStatus } from "@/lib/client/sync";
 import type { PublicUser } from "@/lib/types";
 
@@ -166,7 +167,10 @@ export default function ProfilePage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <LockedRow label="User ID" value={user.userId || "-"} />
             <LockedRow label="Email" value={user.email || "not set"} />
-            <LockedRow label="Phone number" value={user.phone || "not set"} />
+            <LockedRow
+              label="Phone number"
+              value={user.phone ? formatPhone(user.phone) : "not set"}
+            />
             <LockedRow
               label="Verified"
               value={user.verified ? "Yes" : "No"}

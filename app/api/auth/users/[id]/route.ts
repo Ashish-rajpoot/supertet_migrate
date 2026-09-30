@@ -1,4 +1,11 @@
 import { isValidUserId } from "@/lib/userid";
+import {
+  NAME_MAX,
+  isValidEmail,
+  isValidPhone,
+  normaliseEmail,
+  normalisePhone,
+} from "@/lib/contact";
 import { Otp, User } from "@/lib/server/models";
 import { hashPassword, requireAdmin } from "@/lib/server/auth";
 import { readBody, requireDb, toPublicUser } from "@/lib/server/api";
@@ -7,9 +14,6 @@ import { extendSubscription } from "@/lib/server/access";
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_RE = /^\+?[0-9]{10,14}$/;
 
 const has = (body: Record<string, unknown>, key: string) =>
   Object.prototype.hasOwnProperty.call(body, key);
@@ -95,36 +99,58 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
     /* ------------- profile fields (admin-managed) ------------- */
     if (has(body, "name")) {
-      target.name = String(body.name || "").trim() || target.name;
+      const name = String(body.name || "").trim();
+      if (name.length > NAME_MAX) {
+        return Response.json(
+          { error: `Name must be ${NAME_MAX} characters or fewer` },
+          { status: 400 }
+        );
+      }
+      target.name = name || target.name;
     }
     if (has(body, "email")) {
-      const email = String(body.email || "").trim().toLowerCase();
-      if (email && !EMAIL_RE.test(email)) {
+      const email = normaliseEmail(String(body.email || ""));
+      if (email && !isValidEmail(email)) {
         return Response.json({ error: "Enter a valid email address" }, { status: 400 });
       }
-      if (email && email !== target.email) {
-        const clash = await User.findOne({ email });
-        if (clash && clash.id !== target.id) {
-          return Response.json({ error: "This email is already registered" }, { status: 409 });
+      // Clearing a field is allowed (an admin may be removing a bad
+      // contact), so an empty value is honoured rather than ignored.
+      if (email !== target.email) {
+        if (email) {
+          const clash = await User.findOne({ email });
+          if (clash && clash.id !== target.id) {
+            return Response.json({ error: "This email is already registered" }, { status: 409 });
+          }
         }
         target.email = email;
       }
     }
     if (has(body, "phone")) {
-      const phone = String(body.phone || "").replace(/[\s-]/g, "");
-      if (phone && !PHONE_RE.test(phone)) {
+      const phone = normalisePhone(String(body.phone || ""));
+      if (phone && !isValidPhone(phone)) {
         return Response.json({ error: "Enter a valid phone number" }, { status: 400 });
       }
-      if (phone && phone !== target.phone) {
-        const clash = await User.findOne({ phone });
-        if (clash && clash.id !== target.id) {
-          return Response.json(
-            { error: "This phone number is already registered" },
-            { status: 409 }
-          );
+      if (phone !== target.phone) {
+        if (phone) {
+          const clash = await User.findOne({ phone });
+          if (clash && clash.id !== target.id) {
+            return Response.json(
+              { error: "This phone number is already registered" },
+              { status: 409 }
+            );
+          }
         }
         target.phone = phone;
       }
+    }
+    // An account with neither contact can still sign in by user ID or
+    // Google, but a Google-only admin edit that empties both usually
+    // means a mistake - say so instead of silently locking someone out.
+    if (!target.email && !target.phone && !target.googleId && !target.passwordHash) {
+      return Response.json(
+        { error: "This account would have no way to sign in. Set an email or phone first." },
+        { status: 400 }
+      );
     }
     if (has(body, "userId")) {
       const userId = String(body.userId || "").trim().toLowerCase();

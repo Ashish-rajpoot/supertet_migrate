@@ -1,12 +1,16 @@
 import { isValidUserId, uniqueUserId } from "@/lib/userid";
+import {
+  NAME_MAX,
+  isValidEmail,
+  isValidPhone,
+  normaliseEmail,
+  normalisePhone,
+} from "@/lib/contact";
 import { User } from "@/lib/server/models";
 import { hashPassword, requireAdmin } from "@/lib/server/auth";
 import { queryOf, readBody, requireDb, toPublicUser } from "@/lib/server/api";
 
 export const dynamic = "force-dynamic";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_RE = /^\+?[0-9]{10,14}$/;
 
 /** GET /api/auth/users - admin only: roster for the permission panel. */
 export async function GET(req: Request) {
@@ -40,8 +44,8 @@ export async function POST(req: Request) {
   try {
     const body = ((await readBody(req)) || {}) as Record<string, unknown>;
     const name = String(body.name || "").trim();
-    const email = String(body.email || "").trim().toLowerCase();
-    const phone = String(body.phone || "").replace(/[\s-]/g, "");
+    const email = normaliseEmail(String(body.email || ""));
+    const phone = normalisePhone(String(body.phone || ""));
     const userIdRaw = String(body.userId || "").trim().toLowerCase();
     const password = String(body.password || "");
     const role = String(body.role || "user") === "admin" ? "admin" : "user";
@@ -49,10 +53,16 @@ export async function POST(req: Request) {
     if (!email && !phone) {
       return Response.json({ error: "Email or phone is required" }, { status: 400 });
     }
-    if (email && !EMAIL_RE.test(email)) {
+    if (name.length > NAME_MAX) {
+      return Response.json(
+        { error: `Name must be ${NAME_MAX} characters or fewer` },
+        { status: 400 }
+      );
+    }
+    if (email && !isValidEmail(email)) {
       return Response.json({ error: "Enter a valid email address" }, { status: 400 });
     }
-    if (phone && !PHONE_RE.test(phone)) {
+    if (phone && !isValidPhone(phone)) {
       return Response.json({ error: "Enter a valid phone number" }, { status: 400 });
     }
     if (password.length < 6) {
