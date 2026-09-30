@@ -506,32 +506,43 @@ function PlanRow({
         {joinedOf(u)}
       </TableCell>
       <TableCell className="text-right whitespace-nowrap">
-        {self ? (
-          <span className="text-xs text-muted-foreground">—</span>
-        ) : (
-          <span className="inline-flex gap-1">
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              asChild
-              aria-label={t("users.viewResults")}
-              title={t("users.viewResults")}
-              disabled={locked}
+        {/* The self guard is only about deleting: an admin can edit
+            their own row (including their own phone number), the server
+            refuses to let anyone delete themselves. Hiding the whole
+            button group left an admin unable to fix their own contact
+            details. */}
+        <span className="inline-flex gap-1">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            asChild
+            aria-label={t("users.viewResults")}
+            title={t("users.viewResults")}
+            disabled={locked}
+          >
+            <Link href={`/progress?userId=${encodeURIComponent(u.id)}`}>
+              <TrendingUp />
+            </Link>
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t("users.edit")}
+            title={t("users.edit")}
+            disabled={locked}
+            onClick={onEdit}
+          >
+            <Pencil />
+          </Button>
+          {self ? (
+            <span
+              className="inline-flex size-8 items-center justify-center text-xs text-muted-foreground"
+              title={t("users.cannotDeleteSelf")}
+              aria-label={t("users.cannotDeleteSelf")}
             >
-              <Link href={`/progress?userId=${encodeURIComponent(u.id)}`}>
-                <TrendingUp />
-              </Link>
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={t("users.edit")}
-              title={t("users.edit")}
-              disabled={locked}
-              onClick={onEdit}
-            >
-              <Pencil />
-            </Button>
+              —
+            </span>
+          ) : (
             <Button
               size="icon-sm"
               variant="ghost"
@@ -543,8 +554,8 @@ function PlanRow({
             >
               <Trash2 />
             </Button>
-          </span>
-        )}
+          )}
+        </span>
       </TableCell>
     </TableRow>
   );
@@ -597,9 +608,16 @@ export default function UsersPage() {
     (u: PublicUser) => {
       const q = query.trim().toLowerCase();
       if (!q) return true;
-      return [u.name, u.email, u.phone, u.userId].some((s) =>
-        String(s || "").toLowerCase().includes(q)
-      );
+      // Include the value inside a pending request, so an admin can find
+      // a student by the NEW number they asked for - the current one may
+      // be the thing that is wrong.
+      return [
+        u.name,
+        u.email,
+        u.phone,
+        u.userId,
+        u.contactRequest?.value,
+      ].some((s) => String(s || "").toLowerCase().includes(q));
     },
     [query]
   );

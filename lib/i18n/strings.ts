@@ -73,6 +73,10 @@ export const STRINGS = {
   "users.unverified": { hi: "असत्यापित", en: "Unverified" },
   "users.edit": { hi: "बदलें", en: "Edit" },
   "users.delete": { hi: "हटाएँ", en: "Delete" },
+  "users.cannotDeleteSelf": {
+    hi: "आप अपना खाता नहीं हटा सकते।",
+    en: "You cannot delete your own account.",
+  },
   "users.empty.title": { hi: "कोई खाता नहीं", en: "No accounts yet" },
   "users.empty.hint": { hi: "“उपयोगकर्ता जोड़ें” से पहला खाता बनाएँ।", en: "Create the first one with “Add user”." },
   "users.noMatch.title": { hi: "कोई मैच नहीं", en: "No matches" },
