@@ -34,8 +34,15 @@ import {
   setDockHidden as persistDockHidden,
   setFontScale as persistFontScale,
 } from "@/lib/client/a11y";
+import {
+  THEME_DEFAULT,
+  getTheme,
+  isThemeMode,
+  type ThemeMode,
+  type ThemeVariant,
+} from "@/lib/client/theme";
 
-export type ThemeMode = "auto" | "light" | "dark";
+export type { ThemeMode };
 
 interface AuthCtx {
   ready: boolean;
@@ -116,23 +123,37 @@ function Inner({ children }: { children: ReactNode }) {
     apiUrl: "",
     googleClientId: "",
   }));
-  const [themeMode, setThemeModeState] = useState<ThemeMode>("auto");
+  const [themeMode, setThemeModeState] = useState<ThemeMode>(THEME_DEFAULT);
   const [lang, setLangState] = useState<Lang>("both");
   const [fontScale, setFontScaleState] = useState<FontScale>("md");
   const [dockHidden, setDockHiddenState] = useState(false);
   const [user, setUser] = useState<PublicUser | null>(null);
   const [ready, setReady] = useState(false);
 
+  /**
+   * The extra palettes (sepia, contrast) live on a data-theme attribute
+   * rather than the .dark class, because that class belongs to
+   * next-themes. Keeping them orthogonal means a variant can later be
+   * paired with either scheme without a second control.
+   */
+  const setThemeVariant = useCallback((v: ThemeVariant) => {
+    const html = document.documentElement;
+    if (v) html.setAttribute("data-theme", v);
+    else html.removeAttribute("data-theme");
+  }, []);
+
   // First paint: hydrate everything from localStorage (SSR-safe).
   useEffect(() => {
     const s = getSettings();
     setSettingsState(s);
+    // Every theme is one value in one key; isThemeMode keeps a stale or
+    // hand-edited value from putting the page in an unknown palette.
     const storedTheme =
       typeof window !== "undefined" ? localStorage.getItem("stp.theme") : null;
-    const mode: ThemeMode =
-      storedTheme === "light" || storedTheme === "dark" ? storedTheme : "auto";
+    const mode: ThemeMode = isThemeMode(storedTheme) ? storedTheme : THEME_DEFAULT;
     setThemeModeState(mode);
-    setTheme(mode === "auto" ? "system" : mode);
+    setTheme(getTheme(mode).scheme);
+    setThemeVariant(getTheme(mode).variant);
     setLangState(getLang());
     setFontScaleState(getFontScale());
     setDockHiddenState(getDockHidden());
@@ -199,7 +220,7 @@ function Inner({ children }: { children: ReactNode }) {
       window.removeEventListener("stp:settings", onSettings);
       window.removeEventListener("online", onOnline);
     };
-  }, [setTheme]);
+  }, [setTheme, setThemeVariant]);
 
   const saveSettings = useCallback((patch: Partial<Settings>) => {
     setSettingsState(persistSettings(patch));
@@ -213,9 +234,10 @@ function Inner({ children }: { children: ReactNode }) {
       } catch {
         /* ignore */
       }
-      setTheme(t === "auto" ? "system" : t);
+      setTheme(getTheme(t).scheme);
+      setThemeVariant(getTheme(t).variant);
     },
-    [setTheme]
+    [setTheme, setThemeVariant]
   );
 
   const setLang = useCallback((l: Lang) => {

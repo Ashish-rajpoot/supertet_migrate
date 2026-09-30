@@ -58,6 +58,19 @@ export function toPublicUser(u: UserDoc) {
           decidedAt: u.payment.decidedAt ? new Date(u.payment.decidedAt).toISOString() : "",
         }
       : null,
+    contactRequest: u.contactRequest?.value
+      ? {
+          field: u.contactRequest.field,
+          value: u.contactRequest.value,
+          status: u.contactRequest.status,
+          submittedAt: u.contactRequest.submittedAt
+            ? new Date(u.contactRequest.submittedAt).toISOString()
+            : "",
+          decidedAt: u.contactRequest.decidedAt
+            ? new Date(u.contactRequest.decidedAt).toISOString()
+            : "",
+        }
+      : null,
     createdAt: u.createdAt ? new Date(u.createdAt).toISOString() : undefined,
   };
 }

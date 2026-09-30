@@ -74,7 +74,7 @@ function Option({
           "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
           active &&
             (danger
-              ? "border-destructive bg-destructive text-destructive-foreground"
+              ? "border-destructive-solid bg-destructive-solid text-destructive-solid-foreground"
               : "border-primary bg-primary text-primary-foreground")
         )}
       >

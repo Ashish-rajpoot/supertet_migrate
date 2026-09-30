@@ -152,6 +152,15 @@ export interface AccessStatus {
   payment: PaymentRequest | null;
 }
 
+/** A pending change of the phone or email, awaiting an admin decision. */
+export interface ContactRequest {
+  field: "phone" | "email";
+  value: string;
+  status: "pending" | "approved" | "rejected";
+  submittedAt?: string;
+  decidedAt?: string;
+}
+
 /** The user object the API returns - never carries passwordHash / salt. */
 export interface PublicUser {
   id: string;
@@ -169,6 +178,8 @@ export interface PublicUser {
   subscriptionExpiresAt?: string;
   /** Latest payment request, or null when never submitted. */
   payment?: PaymentRequest | null;
+  /** Latest phone/email change request, or null when never requested. */
+  contactRequest?: ContactRequest | null;
   classLevel: string;
   city: string;
   school: string;

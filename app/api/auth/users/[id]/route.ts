@@ -1,3 +1,6 @@
+import { isValidUserId } from "@/lib/userid";
+import { NAME_MAX } from "@/lib/contact";
+import { applyContactChange } from "@/lib/server/contact-change";
 import { Otp, User } from "@/lib/server/models";
 import { hashPassword, requireAdmin } from "@/lib/server/auth";
 import { readBody, requireDb, toPublicUser } from "@/lib/server/api";
@@ -6,9 +9,6 @@ import { extendSubscription } from "@/lib/server/access";
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_RE = /^\+?[0-9]{10,14}$/;
 
 const has = (body: Record<string, unknown>, key: string) =>
   Object.prototype.hasOwnProperty.call(body, key);
@@ -94,56 +94,86 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
     /* ------------- profile fields (admin-managed) ------------- */
     if (has(body, "name")) {
-      target.name = String(body.name || "").trim() || target.name;
+      const name = String(body.name || "").trim();
+      if (name.length > NAME_MAX) {
+        return Response.json(
+          { error: `Name must be ${NAME_MAX} characters or fewer` },
+          { status: 400 }
+        );
+      }
+      target.name = name || target.name;
     }
-    if (has(body, "email")) {
-      const email = String(body.email || "").trim().toLowerCase();
-      if (email && !EMAIL_RE.test(email)) {
-        return Response.json({ error: "Enter a valid email address" }, { status: 400 });
-      }
-      if (email && email !== target.email) {
-        const clash = await User.findOne({ email });
-        if (clash && clash.id !== target.id) {
-          return Response.json({ error: "This email is already registered" }, { status: 409 });
-        }
-        target.email = email;
-      }
-    }
-    if (has(body, "phone")) {
-      const phone = String(body.phone || "").replace(/[\s-]/g, "");
-      if (phone && !PHONE_RE.test(phone)) {
-        return Response.json({ error: "Enter a valid phone number" }, { status: 400 });
-      }
-      if (phone && phone !== target.phone) {
-        const clash = await User.findOne({ phone });
-        if (clash && clash.id !== target.id) {
-          return Response.json(
-            { error: "This phone number is already registered" },
-            { status: 409 }
-          );
-        }
-        target.phone = phone;
+    // Contact details go through the single shared writer, which checks
+    // format, clashes and the "no way to sign in" case. allowEmpty so an
+    // admin can clear a bad contact.
+    for (const field of ["email", "phone"] as const) {
+      if (!has(body, field)) continue;
+      const problem = await applyContactChange(target, field, String(body[field] || ""), {
+        allowEmpty: true,
+      });
+      if (problem) {
+        return Response.json(
+          { error: problem },
+          { status: problem.includes("already registered") ? 409 : 400 }
+        );
       }
     }
     if (has(body, "userId")) {
       const userId = String(body.userId || "").trim().toLowerCase();
-      if (userId && !/^[a-z0-9_.]{3,30}$/.test(userId)) {
+      if (userId && !isValidUserId(userId)) {
         return Response.json(
           { error: "User ID must be 3-30 chars: letters, numbers, _ or ." },
           { status: 400 }
         );
       }
+      // The user id is the permanent handle on an account: attempts, the
+      // analytics roster and saved progress all key off it, so it is
+      // fixed at creation even for an admin. Email and phone stay
+      // editable because they are contact details, not identifiers.
       if (userId && userId !== target.userId) {
-        const clash = await User.findOne({ userId });
-        if (clash && clash.id !== target.id) {
-          return Response.json(
-            { error: "This user ID is taken. Pick another." },
-            { status: 409 }
-          );
-        }
-        target.userId = userId;
+        return Response.json(
+          {
+            error:
+              "The user ID cannot be changed once the account exists. Ask the user to sign up again if they need a different one.",
+          },
+          { status: 409 }
+        );
       }
     }
+    /* ------------- approve / reject a contact change request ------------- */
+    if (has(body, "contactDecision")) {
+      const decision = String(body.contactDecision);
+      if (!["approved", "rejected"].includes(decision)) {
+        return Response.json(
+          { error: "contactDecision must be 'approved' or 'rejected'" },
+          { status: 400 }
+        );
+      }
+      if (target.contactRequest?.status !== "pending") {
+        return Response.json(
+          { error: "There is no pending contact change on this account" },
+          { status: 400 }
+        );
+      }
+      const request = target.contactRequest;
+      if (decision === "approved") {
+        // Goes through the same writer as the edit form, so approving a
+        // request cannot bypass the clash or sign-in checks.
+        const problem = await applyContactChange(
+          target,
+          request.field,
+          request.value,
+          { allowEmpty: false }
+        );
+        if (problem) {
+          // Leave it pending so the admin can fix the value, and say why.
+          return Response.json({ error: problem }, { status: 409 });
+        }
+      }
+      request.status = decision as "approved" | "rejected";
+      request.decidedAt = new Date();
+    }
+
     if (has(body, "verified")) target.verified = Boolean(body.verified);
     if (has(body, "classLevel")) target.classLevel = String(body.classLevel || "").slice(0, 120);
     if (has(body, "city")) target.city = String(body.city || "").slice(0, 120);

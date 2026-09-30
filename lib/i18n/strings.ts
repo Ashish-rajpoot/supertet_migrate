@@ -1,4 +1,4 @@
-/* ===========================================================
+﻿/* ===========================================================
    lib/i18n/strings.ts - every user-visible UI string, in
    both languages, in one typed dictionary.
 
@@ -73,6 +73,10 @@ export const STRINGS = {
   "users.unverified": { hi: "असत्यापित", en: "Unverified" },
   "users.edit": { hi: "बदलें", en: "Edit" },
   "users.delete": { hi: "हटाएँ", en: "Delete" },
+  "users.cannotDeleteSelf": {
+    hi: "आप अपना खाता नहीं हटा सकते।",
+    en: "You cannot delete your own account.",
+  },
   "users.empty.title": { hi: "कोई खाता नहीं", en: "No accounts yet" },
   "users.empty.hint": { hi: "“उपयोगकर्ता जोड़ें” से पहला खाता बनाएँ।", en: "Create the first one with “Add user”." },
   "users.noMatch.title": { hi: "कोई मैच नहीं", en: "No matches" },
@@ -103,6 +107,51 @@ export const STRINGS = {
   "users.field.email": { hi: "ईमेल", en: "Email" },
   "users.field.phone": { hi: "फ़ोन", en: "Phone" },
   "users.field.userId": { hi: "User ID", en: "User ID" },
+  "users.field.userIdLocked": {
+    hi: "यह बदला नहीं जा सकता।",
+    en: "Set once and cannot be changed.",
+  },
+  "contact.requestTitle": { hi: "बदलने का अनुरोध", en: "Request a change" },
+  "contact.phoneLabel": { hi: "मोबाइल नंबर", en: "Mobile number" },
+  "contact.emailLabel": { hi: "ईमेल", en: "Email" },
+  "contact.phoneBody": {
+    hi: "आपका नया नंबर भेजें। यह तब लागू होगा जब एडमिन स्वीकृत करेगा।",
+    en: "Send your new number. It is applied once an admin approves it.",
+  },
+  "contact.emailBody": {
+    hi: "आपका नया ईमेल भेजें। यह तब लागू होगा जब एडमिन स्वीकृत करेगा।",
+    en: "Send your new email. It is applied once an admin approves it.",
+  },
+  "contact.placeholderPhone": { hi: "98765 43210", en: "98765 43210" },
+  "contact.placeholderEmail": { hi: "you@example.com", en: "you@example.com" },
+  "contact.submit": { hi: "अनुरोध भेजें", en: "Send request" },
+  "contact.submitted": {
+    hi: "अनुरोध भेजा गया - एडमिन की स्वीकृति की प्रतीक्षा में।",
+    en: "Request sent - waiting for admin approval.",
+  },
+  "contact.pending": { hi: "बदलाव लंबित", en: "Change pending" },
+  "contact.pendingOn": {
+    hi: "{field} का बदलाव लंबित है",
+    en: "{field} change pending",
+  },
+  "contact.approved": { hi: "स्वीकृत", en: "Approved" },
+  "contact.rejected": { hi: "अस्वीकृत - दोबारा भेजें", en: "Rejected - send again" },
+  "contact.googleLocked": {
+    hi: "यह खाता Google से साइन इन करता है, इसलिए ईमेल नहीं बदला जा सकता।",
+    en: "This account signs in with Google, so its email cannot be changed.",
+  },
+  "users.contact.label": { hi: "बदलाव अनुरोध", en: "Change request" },
+  "users.contact.want": {
+    hi: "{field} → {value}",
+    en: "{field} → {value}",
+  },
+  "users.contact.approve": { hi: "स्वीकृत करें", en: "Approve" },
+  "users.contact.reject": { hi: "अस्वीकारें", en: "Reject" },
+  "users.contact.approved": {
+    hi: "बदलाव स्वीकृत - {field} अपडेट हो गया",
+    en: "Change approved - {field} updated",
+  },
+  "users.contact.rejected": { hi: "बदलाव अस्वीकृत", en: "Change rejected" },
   "users.field.password": { hi: "पासवर्ड", en: "Password" },
   "users.field.newPassword": {
     hi: "नया पासवर्ड (खाली छोड़ें = नहीं बदलें)",
@@ -251,13 +300,15 @@ export const STRINGS = {
   "theme.auto": { hi: "ऑटो (डिवाइस के अनुसार)", en: "Auto (follow device)" },
   "theme.light": { hi: "लाइट", en: "Light" },
   "theme.dark": { hi: "डार्क", en: "Dark" },
+  "theme.sepia": { hi: "सैपिया (आँखों के लिए)", en: "Sepia (easy on eyes)" },
+  "theme.contrast": { hi: "उच्च कंट्रास्ट", en: "High contrast" },
   "theme.current": { hi: "थीम: {mode} (बदलने के लिए क्लिक करें)", en: "Theme: {mode} (click to change)" },
   "theme.aria": { hi: "थीम: {mode}", en: "Theme: {mode}" },
 
   "lang.label": { hi: "भाषा", en: "Language" },
-  "lang.both": { hi: "हिंदी + English", en: "हिंदी + English" },
+  "lang.both": { hi: "हिंदी + English", en: "Hindi + English" },
   "lang.hi": { hi: "हिंदी", en: "Hindi" },
-  "lang.en": { hi: "English", en: "English" },
+  "lang.en": { hi: "अंग्रेज़ी", en: "English" },
 
   /* ---------------- accessibility dock ---------------- */
   "a11y.title": { hi: "सुगम्यता", en: "Accessibility" },
