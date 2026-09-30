@@ -1,3 +1,4 @@
+import { isValidUserId } from "@/lib/userid";
 import { Otp, User } from "@/lib/server/models";
 import { hashPassword, requireAdmin } from "@/lib/server/auth";
 import { readBody, requireDb, toPublicUser } from "@/lib/server/api";
@@ -127,21 +128,24 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
     if (has(body, "userId")) {
       const userId = String(body.userId || "").trim().toLowerCase();
-      if (userId && !/^[a-z0-9_.]{3,30}$/.test(userId)) {
+      if (userId && !isValidUserId(userId)) {
         return Response.json(
           { error: "User ID must be 3-30 chars: letters, numbers, _ or ." },
           { status: 400 }
         );
       }
+      // The user id is the permanent handle on an account: attempts, the
+      // analytics roster and saved progress all key off it, so it is
+      // fixed at creation even for an admin. Email and phone stay
+      // editable because they are contact details, not identifiers.
       if (userId && userId !== target.userId) {
-        const clash = await User.findOne({ userId });
-        if (clash && clash.id !== target.id) {
-          return Response.json(
-            { error: "This user ID is taken. Pick another." },
-            { status: 409 }
-          );
-        }
-        target.userId = userId;
+        return Response.json(
+          {
+            error:
+              "The user ID cannot be changed once the account exists. Ask the user to sign up again if they need a different one.",
+          },
+          { status: 409 }
+        );
       }
     }
     if (has(body, "verified")) target.verified = Boolean(body.verified);

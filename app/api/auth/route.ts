@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { isValidUserId, uniqueUserId } from "@/lib/userid";
 import { Otp, User } from "@/lib/server/models";
 import {
   generateOtp,
@@ -108,7 +109,7 @@ export async function POST(req: Request) {
       }
       const userId = userIdRaw.toLowerCase();
       if (userId) {
-        if (!/^[a-z0-9_.]{3,30}$/.test(userId)) {
+        if (!isValidUserId(userId)) {
           return Response.json(
             { error: "User ID must be 3-30 chars: letters, numbers, _ or ." },
             { status: 400 }
@@ -119,13 +120,21 @@ export async function POST(req: Request) {
           return Response.json({ error: "This user ID is taken. Pick another." }, { status: 409 });
         }
       }
+      // With no id chosen, derive a clean one from the email/phone:
+      // "Rani Sharma@gmail.com" becomes "rani.sharma", not the whole
+      // address. See lib/userid.ts.
+      const finalUserId =
+        userId ||
+        (await uniqueUserId(identifier.value, async (c) =>
+          Boolean(await User.findOne({ userId: c }).select("id").lean())
+        ));
       const { hash, salt } = hashPassword(password);
       const user = new User({
         id: "u_" + crypto.randomUUID(),
         name: name || "Student",
         email: identifier.isEmail ? identifier.value : "",
         phone: identifier.isPhone ? identifier.value : "",
-        userId: userId || (identifier.isEmail ? identifier.value : identifier.value),
+        userId: finalUserId,
         passwordHash: hash,
         salt,
         verified: false,
@@ -322,11 +331,16 @@ export async function POST(req: Request) {
         user = await User.findOne({ email: String(payload.email).toLowerCase() });
       }
       if (!user) {
+        const email = String(payload.email).toLowerCase();
         user = new User({
           id: "u_" + crypto.randomUUID(),
           name: payload.name || "Student",
-          email: String(payload.email).toLowerCase(),
-          userId: String(payload.email).toLowerCase(),
+          email,
+          // Same clean derived id as every other signup path, so a Google
+          // user never ends up with an id containing "@".
+          userId: await uniqueUserId(email, async (c) =>
+            Boolean(await User.findOne({ userId: c }).select("id").lean())
+          ),
           googleId: payload.sub || "",
           avatar: payload.picture || "",
           verified: true,

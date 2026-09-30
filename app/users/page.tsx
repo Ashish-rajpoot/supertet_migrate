@@ -78,11 +78,21 @@ const EMPTY_FORM: FormState = {
 };
 
 /** Small labelled control wrapper for the dialog form. */
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  /** Optional muted note under the control, e.g. why a field is locked. */
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
     <div className="grid gap-1.5">
       <span className="text-sm font-medium">{label}</span>
       {children}
+      {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
     </div>
   );
 }
@@ -176,12 +186,21 @@ function UserFormDialog({
               />
             </Field>
           </div>
-          <Field label={t("users.field.userId")}>
+          {/* Set once, at creation. The server rejects a change even from
+              an admin, because attempts and progress are keyed off it -
+              so the field is locked here rather than offering a control
+              that would fail on save. */}
+          <Field
+            label={t("users.field.userId")}
+            hint={user ? t("users.field.userIdLocked") : undefined}
+          >
             <Input
               value={form.userId}
               onChange={(e) => set("userId", e.target.value)}
               maxLength={30}
               autoComplete="off"
+              readOnly={Boolean(user)}
+              className={user ? "bg-muted text-muted-foreground" : undefined}
             />
           </Field>
           <Field label={user ? t("users.field.newPassword") : t("users.field.password")}>

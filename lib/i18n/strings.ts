@@ -103,6 +103,10 @@ export const STRINGS = {
   "users.field.email": { hi: "ईमेल", en: "Email" },
   "users.field.phone": { hi: "फ़ोन", en: "Phone" },
   "users.field.userId": { hi: "User ID", en: "User ID" },
+  "users.field.userIdLocked": {
+    hi: "यह बदला नहीं जा सकता।",
+    en: "Set once and cannot be changed.",
+  },
   "users.field.password": { hi: "पासवर्ड", en: "Password" },
   "users.field.newPassword": {
     hi: "नया पासवर्ड (खाली छोड़ें = नहीं बदलें)",

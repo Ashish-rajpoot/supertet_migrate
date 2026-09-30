@@ -1,3 +1,4 @@
+import { isValidUserId, uniqueUserId } from "@/lib/userid";
 import { User } from "@/lib/server/models";
 import { hashPassword, requireAdmin } from "@/lib/server/auth";
 import { queryOf, readBody, requireDb, toPublicUser } from "@/lib/server/api";
@@ -60,15 +61,19 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    if (userIdRaw && !/^[a-z0-9_.]{3,30}$/.test(userIdRaw)) {
-      return Response.json(
-        { error: "User ID must be 3-30 chars: letters, numbers, _ or ." },
-        { status: 400 }
-      );
-    }
-    // Same default as self-registration: the login id falls back to the
-    // email (or phone) the account was created with.
-    const userId = userIdRaw || email || phone;
+      if (userIdRaw && !isValidUserId(userIdRaw)) {
+        return Response.json(
+          { error: "User ID must be 3-30 chars: letters, numbers, _ or ." },
+          { status: 400 }
+        );
+      }
+      // Same default as self-registration: a clean id derived from the
+      // email (or phone), not the whole address. See lib/userid.ts.
+      const userId =
+        userIdRaw ||
+        (await uniqueUserId(email || phone, async (c) =>
+          Boolean(await User.findOne({ userId: c }).select("id").lean())
+        ));
 
     if (email && (await User.findOne({ email }))) {
       return Response.json({ error: "This email is already registered" }, { status: 409 });
