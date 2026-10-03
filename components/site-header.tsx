@@ -10,7 +10,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "cn";
-import { GraduationCap, Menu, ChevronDown, LogOut, UserRound } from "lucide-react";
+import { GraduationCap, Menu, ChevronDown, LogOut, UserRound, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -190,6 +190,19 @@ export function SiteHeader() {
   const links = visibleNav({ signedIn, mayEdit, isAdmin });
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
+
+  /* The top bar used to render every non-help link, which is ten items once
+     an admin is signed in. Three things come out of it:
+       - "/" goes, because the logo beside it already links home
+       - "/profile" goes, because the account chip below already offers it
+       - the manage group (questions / subjects / users) collapses into one
+         dropdown, so a student's study links and an admin's tools can no
+         longer crowd each other out.
+     The drawer still lists everything, so nothing becomes unreachable. */
+  const topLinks = links.filter((l) => l.group === "study" && l.href !== "/");
+  const manageLinks = links.filter((l) => l.group === "manage" && l.href !== "/profile");
+  const manageActive = manageLinks.some((l) => isActive(l.href));
+
   return (
     <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-2 px-4">
@@ -198,24 +211,58 @@ export function SiteHeader() {
           <span>SuperTET Prep</span>
         </Link>
         <nav className="ml-2 hidden items-center gap-1 lg:flex" aria-label={t("auth.primaryNav")}>
-          {/* The help group is kept out of the top bar, which is already a
-              long strip once an admin is signed in; it lives in the drawer
-              and in the footer instead. */}
-          {links
-            .filter((l) => l.group !== "help")
-            .map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                aria-current={isActive(l.href) ? "page" : undefined}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                  isActive(l.href) && "bg-muted text-foreground"
-                )}
-              >
-                <T k={l.label} />
-              </Link>
-            ))}
+          {/* Study links only - the ones a student actually reaches for. */}
+          {topLinks.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              aria-current={isActive(l.href) ? "page" : undefined}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                isActive(l.href) && "bg-muted text-foreground"
+              )}
+            >
+              <T k={l.label} />
+            </Link>
+          ))}
+          {/* Authoring and admin tools in one place, with their hints. */}
+          {manageLinks.length ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-current={manageActive ? "page" : undefined}
+                  className={cn(
+                    "gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
+                    manageActive && "bg-muted text-foreground"
+                  )}
+                >
+                  <Settings className="size-4" />
+                  <T k="nav.group.manage" />
+                  <ChevronDown className="size-3.5 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                {manageLinks.map((l) => (
+                  <DropdownMenuItem
+                    key={l.href}
+                    asChild
+                    className={cn("py-2", isActive(l.href) && "bg-muted")}
+                  >
+                    <Link href={l.href} className="block w-full">
+                      <span className="text-sm font-medium">
+                        <T k={l.label} />
+                      </span>
+                      <span className="block text-xs font-normal text-muted-foreground">
+                        {t(l.hint)}
+                      </span>
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </nav>
         <div className="ml-auto hidden items-center gap-1.5 sm:flex">
           <UserChip />
