@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /* ===========================================================
    components/site-header.tsx - sticky top bar
@@ -6,7 +6,7 @@
    carries the same links on phones. Language and theme live in
    the footer (see components/misc.tsx).
    =========================================================== */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "cn";
@@ -95,13 +95,37 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { GROUP_TITLES, visibleNav } from "@/lib/nav";
+import { getWrongBook } from "@/lib/client/store";
+import { bookTotals } from "@/lib/data/wrong-book";
+
+/**
+ * Whether the mistake book holds anything worth revising.
+ *
+ * Deliberately starts false and only reads the book after mount: it lives
+ * in localStorage, so the server has none. Rendering the Improve link
+ * during SSR would not match the client's first paint - and an unmatched
+ * nav is a hydration mismatch, which is worse than a link appearing a
+ * moment later.
+ *
+ * Re-read on navigation, because finishing a test is exactly what fills
+ * the book and the push to the result page is what should reveal the link.
+ */
+function useHasMistakes(): boolean {
+  const pathname = usePathname();
+  const [has, setHas] = useState(false);
+  useEffect(() => {
+    setHas(bookTotals(getWrongBook()).missed > 0);
+  }, [pathname]);
+  return has;
+}
 
 function DrawerBody({ onNavigate }: { onNavigate: () => void }) {
   const { user, signedIn, isAdmin, mayEdit } = useAuth();
   const { t } = useT();
   const router = useRouter();
   const [loginOpen, setLoginOpen] = useState(false);
-  const links = visibleNav({ signedIn, mayEdit, isAdmin });
+  const hasMistakes = useHasMistakes();
+  const links = visibleNav({ signedIn, mayEdit, isAdmin, hasMistakes });
   return (
     <div className="flex flex-col gap-4 px-1 pb-6">
       {user ? (
@@ -187,7 +211,8 @@ export function SiteHeader() {
   const { signedIn, isAdmin, mayEdit } = useAuth();
   const { t } = useT();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const links = visibleNav({ signedIn, mayEdit, isAdmin });
+  const hasMistakes = useHasMistakes();
+  const links = visibleNav({ signedIn, mayEdit, isAdmin, hasMistakes });
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
 
