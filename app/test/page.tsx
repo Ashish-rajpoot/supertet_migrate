@@ -24,6 +24,7 @@ import { BiText, LETTERS, OptionRow } from "@/components/question-view";
 import { DifficultyBadge, EmptyState, PageShell, SubjectBadge } from "@/components/misc";
 import { useT, type StringKey } from "@/lib/i18n/t";
 import { getAllWithServer, LETTERS as DATA_LETTERS } from "@/lib/data/normalize";
+import { shouldAutoAdvance } from "@/lib/data/advance";
 import {
   addAttempt,
   getAttempts as getLocalAttempts,
@@ -119,17 +120,26 @@ function TestInner() {
   const [negative, setNegative] = useState(false);
   const [showExpl, setShowExpl] = useState(true);
   const [shuffleOptions, setShuffleOptionsState] = useState(true);
+  /** Move on as soon as an option is picked. Off = manual Next, as before. */
+  const [autoNext, setAutoNextState] = useState(false);
   const [label, setLabel] = useState("");
   // Remember the choice: the switch used to reset on every page load.
   const setShuffleOptions = useCallback((v: boolean) => {
     setShuffleOptionsState(v);
     persistSettings({ shuffleOptions: v });
   }, []);
+  // Persisted the same way, so the test page opens with the choice the
+  // student made last time instead of snapping back to manual.
+  const setAutoNext = useCallback((v: boolean) => {
+    setAutoNextState(v);
+    persistSettings({ autoNext: v });
+  }, []);
   useEffect(() => {
     const s = getSettings();
     setCount(s.defaultCount || 20);
     setMinutes(s.defaultMinutes || 20);
     setShuffleOptions(Boolean(s.shuffleOptions));
+    setAutoNext(Boolean(s.autoNext));
     setShowExpl(s.showExplanation !== false);
     let cancelled = false;
     (async () => {
@@ -144,10 +154,25 @@ function TestInner() {
         return;
       }
       saveRun(null);
-      const pre = params.get("subject");
-      if (pre) setSubjects([pre]);
-      const weak = params.get("weak");
-      if (weak) {
+      // Repeated params mean "any of": ?subject=A&subject=B picks both.
+      const preList = params.getAll("subject").map((s) => s.trim()).filter(Boolean);
+      const topicList = params.getAll("topic").map((s) => s.trim()).filter(Boolean);
+      const pre = preList[0] || "";
+      const preTopic = topicList[0] || "";
+      if (preList.length) setSubjects(preList);
+      if (topicList.length) setTopics(topicList);
+
+      // A deep link can START a run outright, so nobody has to pick the
+      // subject / count / timer again by hand - that is what the Improve
+      // page links to. `weak=1` drills the stashed mistake ids; `start=1`
+      // runs the chosen subject (and topic, when given) straight away.
+      const numParam = (key: string, fallback: number, max: number) => {
+        const n = parseInt(params.get(key) || "", 10);
+        return Number.isFinite(n) ? Math.min(Math.max(1, n), max) : fallback;
+      };
+      const scope = pre ? pre + (preTopic ? " / " + preTopic : "") : "Weak answers";
+
+      if (params.get("weak") === "1") {
         try {
           const ids: string[] = JSON.parse(sessionStorage.getItem("stp.weakIds") || "[]");
           if (ids.length) {
@@ -160,15 +185,41 @@ function TestInner() {
                 count: Math.min(pool.length, 30),
                 minutes: 0,
                 mode: "practice",
-                label: "Weak topics revision",
+                label: scope + " revision",
                 negative: false,
                 showExpl: true,
                 shufO: true,
               });
+              return;
             }
           }
         } catch {
           /* ignore */
+        }
+      }
+
+      if (params.get("start") === "1") {
+        const pool = all.filter(
+          (q) =>
+            (!preList.length || preList.includes(q.subject)) &&
+            (!topicList.length || topicList.includes(q.topic))
+        );
+        if (pool.length) {
+          const mode = params.get("mode") === "practice" ? "practice" : "test";
+          begin({
+            bank: all,
+            pool,
+            count: Math.min(numParam("count", 20, 200), pool.length),
+            minutes: numParam("minutes", 20, 240),
+            mode,
+            // Label the run after what was asked for, not just the first pick.
+            label:
+              preList.join(", ") ||
+              (topicList.length ? topicList.join(", ") : "Test"),
+            negative: mode === "test",
+            showExpl: mode === "practice",
+            shufO: true,
+          });
         }
       }
     })();
@@ -551,6 +602,8 @@ function TestInner() {
         setShowExpl={setShowExpl}
         shuffleOptions={shuffleOptions}
         setShuffleOptions={setShuffleOptions}
+        autoNext={autoNext}
+        setAutoNext={setAutoNext}
         label={label}
         setLabel={setLabel}
         onStart={startFromForm}
@@ -561,7 +614,15 @@ function TestInner() {
     );
   }
 
-  return <Runner run={run} setRun={setRun} onFinish={finish} />;
+  return (
+    <Runner
+      run={run}
+      setRun={setRun}
+      onFinish={finish}
+      autoNext={autoNext}
+      setAutoNext={setAutoNext}
+    />
+  );
 }
 
 interface SetupProps {
@@ -587,6 +648,8 @@ interface SetupProps {
   setShowExpl: (v: boolean) => void;
   shuffleOptions: boolean;
   setShuffleOptions: (v: boolean) => void;
+  autoNext: boolean;
+  setAutoNext: (v: boolean) => void;
   label: string;
   setLabel: (v: string) => void;
   onStart: () => void;
@@ -753,6 +816,14 @@ function SetupForm(p: SetupProps) {
               checked={p.shuffleOptions}
               onChange={p.setShuffleOptions}
             />
+            {/* Timed tests only: practice mode shows the explanation and
+                locks the options, so moving on would hide it. */}
+            <SwitchRow
+              id="t-autonext"
+              label={t("test.sw.autoNext")}
+              checked={p.autoNext}
+              onChange={p.setAutoNext}
+            />
           </div>
           <Button size="lg" onClick={p.onStart}>
             {p.mode === "practice" ? t("test.startPractice") : t("test.startTest")}
@@ -794,10 +865,15 @@ function Runner({
   run,
   setRun,
   onFinish,
+  autoNext,
+  setAutoNext,
 }: {
   run: RunState;
   setRun: (r: RunState | null) => void;
   onFinish: (r: RunState) => void;
+  /** Live from the setup form, and flippable mid-test from the header. */
+  autoNext: boolean;
+  setAutoNext: (v: boolean) => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [paused, setPaused] = useState(false);
@@ -846,8 +922,20 @@ function Runner({
 
   function choose(i: number) {
     const answers = run.answers.slice();
-    answers[run.idx] = answers[run.idx] === i ? null : i;
-    update({ answers });
+    // Clicking the same option clears the answer - that is a de-select, not
+    // a fresh pick, and must never count as "answered".
+    const wasSame = answers[run.idx] === i;
+    answers[run.idx] = wasSame ? null : i;
+    // One update, so one saveRun and one render.
+    const advance = shouldAutoAdvance({
+      autoNext,
+      mode: run.mode,
+      paused,
+      idx: run.idx,
+      total: run.questions.length,
+      wasSame,
+    });
+    update(advance ? { answers, idx: run.idx + 1 } : { answers });
   }
 
   function confirmFinish() {
@@ -894,6 +982,20 @@ function Runner({
           {timed ? (
             <Button variant="ghost" size="icon" title={paused ? t("common.resume") : t("common.pause")} onClick={togglePause}>
               {paused ? <Play /> : <Pause />}
+            </Button>
+          ) : null}
+          {/* Flippable mid-test: a student who realises they are rushing can
+              turn this on without abandoning and restarting the paper.
+              Practice mode has no Next-next-to-read, so it is hidden there. */}
+          {run.mode === "test" ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-pressed={autoNext}
+              title={t("test.sw.autoNext")}
+              onClick={() => setAutoNext(!autoNext)}
+            >
+              {autoNext ? t("test.autoNext.on") : t("test.autoNext.off")}
             </Button>
           ) : null}
         </>

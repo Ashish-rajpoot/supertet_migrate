@@ -1,0 +1,190 @@
+import { Attempt, User } from "@/lib/server/models";
+import { requireAuth } from "@/lib/server/auth";
+import { queryOf, requireDb } from "@/lib/server/api";
+
+export const dynamic = "force-dynamic";
+
+const norm = (s: unknown): string =>
+  String(s == null ? "" : s).trim().replace(/\s+/g, " ");
+
+function escapeRegex(s: string) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+const ci = (s: string) => ({ $regex: "^" + escapeRegex(s) + "$", $options: "i" });
+
+async function isAdminUser(userId: string | undefined | null): Promise<boolean> {
+  if (!userId) return false;
+  const user = await User.findOne({ id: userId }).select("role").lean();
+  return Boolean(user && user.role === "admin");
+}
+
+/** One row the client renders: a question plus how often it was missed. */
+interface WrongRow {
+  id: string;
+  subject: string;
+  topic: string;
+  difficulty: string;
+  question: { hi: string; en: string };
+  options: { hi: string[]; en: string[] };
+  answerIndex: number;
+  explanation: { hi: string; en: string };
+  /** Lifetime wrong answers across the matched attempts. */
+  wrong: number;
+  /** Times it was asked in total, so the page can show a real ratio. */
+  asked: number;
+  lastWrongAt: number;
+}
+
+/**
+ * GET /api/attempts/wrong - the questions this student got wrong most,
+ * worst first, so "improve this subject" can start with the ones that
+ * actually cost them marks.
+ *
+ *   default          -> own results
+ *   ?subject=Name    -> one subject only
+ *   ?topic=Name      -> one topic inside it
+ *   ?limit=20        -> how many rows (max 200, default 50)
+ *   ?userId=..       -> another student's results (admin only)
+ *   ?scope=all       -> every student, grouped as-is (admin only)
+ *
+ * This reads the `details` array of each attempt and groups it per
+ * question, which is why the list endpoint (which strips `details` to keep
+ * the payload small) cannot answer this question on its own.
+ */
+export async function GET(req: Request) {
+  const auth = await requireAuth(req);
+  if (auth instanceof Response) return auth;
+  const dbDown = await requireDb();
+  if (dbDown) return dbDown;
+  try {
+    const q = queryOf(req);
+    const isAdmin = await isAdminUser(auth.payload.id);
+    const wantsAll = q.get("scope") === "all";
+    const wantsUser = norm(q.get("userId"));
+
+    if ((wantsAll || wantsUser) && !isAdmin) {
+      return Response.json(
+        { error: "Only an admin can see other students' results" },
+        { status: 403 }
+      );
+    }
+
+    const attemptFilter: Record<string, unknown> = {};
+    if (wantsUser) attemptFilter.userId = wantsUser;
+    else if (!wantsAll) attemptFilter.userId = auth.payload.id;
+    else attemptFilter.userId = { $nin: ["", null] };
+
+    // After $unwind every per-question field lives under `details.*`, so the
+    // filters must be namespaced the same way. Matching a bare `subject`
+    // would look for a top-level field the Attempt schema does not have
+    // (it has `subjects: [String]`), which matches NOTHING and silently
+    // empties the list. `status` is limited to wrong/correct here because
+    // skipped answers are not mistakes; `asked` counts both.
+    const detailFilter: Record<string, unknown> = {
+      "details.status": { $in: ["wrong", "correct"] },
+    };
+    // Repeated params mean "any of": ?subject=A&subject=B matches either.
+    // Each value is its own $or clause rather than one $in of regexes -
+    // Mongo rejects nesting $ under $in. Separate $and members keep the
+    // subject and topic any-ofs from overwriting each other.
+    const subjects = q.getAll("subject").map((s) => norm(s)).filter(Boolean);
+    const topics = q.getAll("topic").map((s) => norm(s)).filter(Boolean);
+    const anyOf: Record<string, unknown>[] = [];
+    if (subjects.length) {
+      anyOf.push({ $or: subjects.map((s) => ({ "details.subject": ci(s) })) });
+    }
+    if (topics.length) {
+      anyOf.push({ $or: topics.map((t) => ({ "details.topic": ci(t) })) });
+    }
+    if (anyOf.length) detailFilter.$and = anyOf;
+
+    const limit = Math.min(parseInt(q.get("limit") || "50", 10) || 50, 200);
+
+    // Group the details of every matching attempt per question. `asked`
+    // counts all answers, not just the wrong ones, so the client can show
+    // "wrong 4 of 6 times" instead of a bare count.
+    const rows = await Attempt.aggregate([
+      { $match: attemptFilter },
+      { $unwind: "$details" },
+      { $match: detailFilter },
+      {
+        $group: {
+          _id: "$details.id",
+          subject: { $first: "$details.subject" },
+          topic: { $first: "$details.topic" },
+          difficulty: { $first: "$details.difficulty" },
+          question: { $first: "$details.question" },
+          options: { $first: "$details.options" },
+          answerIndex: { $first: "$details.answerIndex" },
+          explanation: { $first: "$details.explanation" },
+          wrong: {
+            $sum: { $cond: [{ $eq: ["$details.status", "wrong"] }, 1, 0] },
+          },
+          asked: { $sum: 1 },
+          lastWrongAt: { $max: "$at" },
+        },
+      },
+      { $match: { wrong: { $gt: 0 } } },
+      // Worst first; the most recent mistake breaks a tie, and the id
+      // keeps two equal rows from swapping between requests.
+      { $sort: { wrong: -1, lastWrongAt: -1, _id: 1 } },
+      { $limit: limit },
+    ]);
+
+    const questions: WrongRow[] = rows.map((r) => ({
+      id: String(r._id ?? ""),
+      subject: String(r.subject ?? ""),
+      topic: String(r.topic ?? ""),
+      difficulty: String(r.difficulty ?? "medium"),
+      question: {
+        hi: String(r.question?.hi ?? ""),
+        en: String(r.question?.en ?? ""),
+      },
+      options: {
+        hi: Array.isArray(r.options?.hi) ? r.options.hi.map((x: unknown) => String(x)) : [],
+        en: Array.isArray(r.options?.en) ? r.options.en.map((x: unknown) => String(x)) : [],
+      },
+      answerIndex: Number(r.answerIndex ?? -1),
+      explanation: {
+        hi: String(r.explanation?.hi ?? ""),
+        en: String(r.explanation?.en ?? ""),
+      },
+      wrong: Number(r.wrong || 0),
+      asked: Number(r.asked || 0),
+      lastWrongAt: Number(r.lastWrongAt || 0),
+    }));
+
+    // The Improve page builds its subject picker from the DEVICE book, so a
+    // subject that only ever existed on this device would show up in the
+    // dropdown and then return nothing here. Returning the caller's own
+    // subjects lets the picker list what the active source really has.
+    const subjectRows = await Attempt.aggregate([
+      { $match: attemptFilter },
+      { $unwind: "$details" },
+      { $match: { "details.status": "wrong" } },
+      {
+        $group: {
+          _id: "$details.subject",
+          wrong: { $sum: 1 },
+        },
+      },
+      { $sort: { wrong: -1, _id: 1 } },
+      { $limit: 200 },
+    ]);
+
+    return Response.json({
+      questions,
+      count: questions.length,
+      // "" is the General bucket; keep it out of the picker.
+      subjects: subjectRows
+        .map((r) => ({ subject: String(r._id ?? ""), wrong: Number(r.wrong || 0) }))
+        .filter((r) => r.subject.trim()),
+      scope: wantsAll ? "all" : wantsUser ? "user" : "mine",
+    });
+  } catch (err) {
+    return Response.json(
+      { error: err instanceof Error ? err.message : "Could not load your wrong answers" },
+      { status: 500 }
+    );
+  }
+}

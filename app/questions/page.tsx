@@ -619,6 +619,15 @@ export default function QuestionsPage() {
             50 medium + 50 hard (150 questions in all).
           </p>
 
+          {/* The prompt's strict rule, said out loud so nobody wonders why the
+              model returns fewer questions than asked for. */}
+          <p className="mt-2 text-xs text-muted-foreground">
+            The prompt forbids script-generated questions: every question must come from a real
+            source — a previous-year paper of the same exam, the official syllabus or prescribed
+            textbook — and must name that source in its first tag. If the model cannot find enough
+            real questions, it returns fewer rows rather than inventing any.
+          </p>
+
           <Textarea
             rows={12}
             readOnly

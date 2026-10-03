@@ -8,7 +8,8 @@ A bilingual (Hindi + English) practice app for SuperTET / TET style exams, built
 - **Test mode** - pick subjects/topics, question count and timer; flag questions, auto-submit
 - **Practice mode** - instant answer and explanation
 - **Result page** - score, percentage, subject breakdown, weak topics, full review, shareable
-- **Progress dashboard** - score trend, subject/topic accuracy, day streak; scopes: this device, my cloud results, all students (admin)
+- **Improve page** - pick a subject and revise the questions you got wrong most (lifetime wrong count per question); practise them as a drill or as flashcards
+- **Progress dashboard** - score trend, subject/topic accuracy, day streak, most-wrong questions; scopes: this device, my cloud results, all students (admin)
 - **Add questions in bulk** - upload `.xlsx`, `.csv` or `.json` (synced to MongoDB when signed in)
 - **Subjects and topics** - admin-only syllabus editor
 - **Accounts** - register/login with User ID, email, phone + OTP, password, or Google

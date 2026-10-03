@@ -697,6 +697,15 @@ export default function SubjectsPage() {
             again keeps the name the site already shows.
           </p>
 
+          {/* The prompt's strict rule, said out loud: the chapter list has to be
+              the real official one, not a generated approximation. */}
+          <p className="mt-2 text-xs text-muted-foreground">
+            The prompt forbids generating the chapter list with a script or guessing it: every
+            subject and topic must exist in the real official {aiExam || "exam"} syllabus — the
+            board&apos;s syllabus PDF, the prescribed textbooks or the official website. A chapter
+            no textbook has must not be added, even to fill the list out.
+          </p>
+
           <Textarea
             rows={14}
             readOnly
