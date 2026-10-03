@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /* ===========================================================
    components/site-header.tsx - sticky top bar
@@ -6,11 +6,11 @@
    carries the same links on phones. Language and theme live in
    the footer (see components/misc.tsx).
    =========================================================== */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "cn";
-import { GraduationCap, Menu, ChevronDown, LogOut, UserRound } from "lucide-react";
+import { GraduationCap, Menu, ChevronDown, LogOut, UserRound, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -95,13 +95,37 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { GROUP_TITLES, visibleNav } from "@/lib/nav";
+import { getWrongBook } from "@/lib/client/store";
+import { bookTotals } from "@/lib/data/wrong-book";
+
+/**
+ * Whether the mistake book holds anything worth revising.
+ *
+ * Deliberately starts false and only reads the book after mount: it lives
+ * in localStorage, so the server has none. Rendering the Improve link
+ * during SSR would not match the client's first paint - and an unmatched
+ * nav is a hydration mismatch, which is worse than a link appearing a
+ * moment later.
+ *
+ * Re-read on navigation, because finishing a test is exactly what fills
+ * the book and the push to the result page is what should reveal the link.
+ */
+function useHasMistakes(): boolean {
+  const pathname = usePathname();
+  const [has, setHas] = useState(false);
+  useEffect(() => {
+    setHas(bookTotals(getWrongBook()).missed > 0);
+  }, [pathname]);
+  return has;
+}
 
 function DrawerBody({ onNavigate }: { onNavigate: () => void }) {
   const { user, signedIn, isAdmin, mayEdit } = useAuth();
   const { t } = useT();
   const router = useRouter();
   const [loginOpen, setLoginOpen] = useState(false);
-  const links = visibleNav({ signedIn, mayEdit, isAdmin });
+  const hasMistakes = useHasMistakes();
+  const links = visibleNav({ signedIn, mayEdit, isAdmin, hasMistakes });
   return (
     <div className="flex flex-col gap-4 px-1 pb-6">
       {user ? (
@@ -187,40 +211,96 @@ export function SiteHeader() {
   const { signedIn, isAdmin, mayEdit } = useAuth();
   const { t } = useT();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const links = visibleNav({ signedIn, mayEdit, isAdmin });
+  const hasMistakes = useHasMistakes();
+  const links = visibleNav({ signedIn, mayEdit, isAdmin, hasMistakes });
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
+
+  /* The top bar used to render every non-help link, which is ten items once
+     an admin is signed in. Three things come out of it:
+       - "/" goes, because the logo beside it already links home
+       - "/profile" goes, because the account chip below already offers it
+       - the manage group (questions / subjects / users) collapses into one
+         dropdown, so a student's study links and an admin's tools can no
+         longer crowd each other out.
+     The drawer still lists everything, so nothing becomes unreachable. */
+  const topLinks = links.filter((l) => l.group === "study" && l.href !== "/");
+  const manageLinks = links.filter((l) => l.group === "manage" && l.href !== "/profile");
+  const manageActive = manageLinks.some((l) => isActive(l.href));
+
   return (
     <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-2 px-4">
-        <Link href="/" className="flex items-center gap-2 font-bold">
+        <Link href="/" className="flex shrink-0 items-center gap-2 font-bold">
           <GraduationCap className="size-6 text-primary" />
           <span>SuperTET Prep</span>
         </Link>
-        <nav className="ml-2 hidden items-center gap-1 lg:flex" aria-label={t("auth.primaryNav")}>
-          {/* The help group is kept out of the top bar, which is already a
-              long strip once an admin is signed in; it lives in the drawer
-              and in the footer instead. */}
-          {links
-            .filter((l) => l.group !== "help")
-            .map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                aria-current={isActive(l.href) ? "page" : undefined}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                  isActive(l.href) && "bg-muted text-foreground"
-                )}
-              >
-                <T k={l.label} />
-              </Link>
-            ))}
+        <nav className="ml-2 hidden min-w-0 items-center gap-1 overflow-x-auto xl:flex" aria-label={t("auth.primaryNav")}>
+          {/* Study links only - the ones a student actually reaches for. */}
+          {topLinks.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              aria-current={isActive(l.href) ? "page" : undefined}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                isActive(l.href) && "bg-muted text-foreground"
+              )}
+            >
+              <T k={l.label} />
+            </Link>
+          ))}
+          {/* Authoring and admin tools in one place, with their hints. */}
+          {manageLinks.length ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-current={manageActive ? "page" : undefined}
+                  className={cn(
+                    "gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
+                    manageActive && "bg-muted text-foreground"
+                  )}
+                >
+                  <Settings className="size-4" />
+                  <T k="nav.group.manage" />
+                  <ChevronDown className="size-3.5 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                {manageLinks.map((l) => (
+                  <DropdownMenuItem
+                    key={l.href}
+                    asChild
+                    className={cn("py-2", isActive(l.href) && "bg-muted")}
+                  >
+                    <Link href={l.href} className="block w-full">
+                      <span className="text-sm font-medium">
+                        <T k={l.label} />
+                      </span>
+                      <span className="block text-xs font-normal text-muted-foreground">
+                        {t(l.hint)}
+                      </span>
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </nav>
-        <div className="ml-auto hidden items-center gap-1.5 sm:flex">
+        <div className="ml-auto hidden shrink-0 items-center gap-1.5 sm:flex">
           <UserChip />
         </div>
-        <div className="ml-auto flex items-center gap-1 sm:hidden">
+        {/* The drawer trigger must stay visible right up to the width where
+            the inline nav appears. The nav is hidden below xl, so an sm:hidden
+            trigger left the whole 640-1023px band - tablets, landscape phones,
+            narrow windows - with no navigation at all. The two breakpoints have
+            to be the same value or one of the two always wins and the gap
+            between them is unreachable.
+            xl rather than lg also keeps the nav honest at the largest text
+            size: at 125% the study links no longer fit across 1024px. */}
+        <div className="ml-auto flex shrink-0 items-center gap-1 xl:hidden">
           <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" aria-label={t("auth.openMenu")}>

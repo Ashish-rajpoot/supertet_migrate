@@ -401,6 +401,79 @@ export async function fetchAttempts(
   return await res.json();
 }
 
+/**
+ * One row of GET /api/attempts/wrong - the same shape the local mistake
+ * book produces, so the Improve page can render either source the same
+ * way. `asked` is how often the question came up at all.
+ */
+export interface WrongQuestion {
+  id: string;
+  subject: string;
+  topic: string;
+  difficulty: string;
+  question: { hi: string; en: string };
+  options: { hi: string[]; en: string[] };
+  answerIndex: number;
+  explanation: { hi: string; en: string };
+  /** Lifetime times it was answered wrongly. */
+  wrong: number;
+  /** Times it was asked (wrong + correct). */
+  asked: number;
+  lastWrongAt: number;
+}
+
+/** One subject the caller has wrong answers in, worst first. */
+export interface WrongSubjectRow {
+  subject: string;
+  wrong: number;
+}
+
+/**
+ * The questions this student got wrong most, plus the subjects they have
+ * mistakes in. Returns null when the server cannot be reached so the caller
+ * can fall back to the local book instead of showing an empty page.
+ *
+ * userId / scope need the admin role, exactly as on fetchAttempts.
+ */
+export async function fetchWrongQuestions(
+  opts: {
+    subject?: string | string[];
+    topic?: string | string[];
+    limit?: number;
+    userId?: string;
+    scope?: string;
+  } = {}
+): Promise<{ questions: WrongQuestion[]; subjects: WrongSubjectRow[] } | null> {
+  const params = new URLSearchParams();
+  // Repeated params mean "any of" on the server.
+  const addAll = (name: string, v: string | string[] | undefined) => {
+    for (const one of [v || []].flat()) {
+      const s = String(one || "").trim();
+      if (s) params.append(name, s);
+    }
+  };
+  addAll("subject", opts.subject);
+  addAll("topic", opts.topic);
+  if (opts.limit) params.set("limit", String(opts.limit));
+  if (opts.userId) params.set("userId", opts.userId);
+  if (opts.scope) params.set("scope", opts.scope);
+  const qs = params.toString();
+  try {
+    const res = await fetch(getApiBase() + "/attempts/wrong" + (qs ? "?" + qs : ""), {
+      headers: headers(false),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      questions: Array.isArray(data?.questions) ? (data.questions as WrongQuestion[]) : [],
+      subjects: Array.isArray(data?.subjects) ? (data.subjects as WrongSubjectRow[]) : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Delete one result (owner or admin). */
 export async function deleteServerAttempt(id: string) {
   const res = await fetch(getApiBase() + "/attempts/" + encodeURIComponent(id), {

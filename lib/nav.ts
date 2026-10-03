@@ -17,6 +17,10 @@ export interface NavLink {
   auth?: boolean;
   editor?: boolean;
   admin?: boolean;
+  /** Only shown once the mistake book holds something worth revising.
+   *  An Improve link that opens onto "no mistakes recorded yet" is just
+   *  another item in a crowded bar. */
+  needsMistakes?: boolean;
 }
 
 export const NAV: NavLink[] = [
@@ -25,6 +29,10 @@ export const NAV: NavLink[] = [
   { href: "/flashcards", label: "nav.flashcards", group: "study", hint: "nav.hint.flashcards" },
   { href: "/test", label: "nav.test", group: "study", hint: "nav.hint.test" },
   { href: "/progress", label: "nav.progress", group: "study", auth: true, hint: "nav.hint.progress" },
+  // Not gated on auth - a signed-out device still has a local mistake book,
+  // so the drill stays reachable offline. It IS gated on having something to
+  // revise, so it only appears once a test has actually produced mistakes.
+  { href: "/improve", label: "nav.improve", group: "study", needsMistakes: true, hint: "nav.hint.improve" },
   { href: "/questions", label: "nav.questions", group: "manage", editor: true, hint: "nav.hint.questions" },
   { href: "/subjects", label: "nav.subjects", group: "manage", admin: true, hint: "nav.hint.subjects" },
   { href: "/users", label: "nav.users", group: "manage", admin: true, hint: "nav.hint.users" },
@@ -37,14 +45,17 @@ export interface NavVisibility {
   signedIn: boolean;
   mayEdit: boolean;
   isAdmin: boolean;
+  /** True once the mistake book has at least one wrong answer recorded. */
+  hasMistakes?: boolean;
 }
 
-/** Remove auth/editor/admin links the caller may not see. */
+/** Remove links the caller may not see, including data-dependent ones. */
 export function visibleNav(v: NavVisibility): NavLink[] {
   return NAV.filter((l) => {
     if (l.admin && !v.isAdmin) return false;
     if (l.editor && !v.mayEdit) return false;
     if (l.auth && !v.signedIn) return false;
+    if (l.needsMistakes && !v.hasMistakes) return false;
     return true;
   });
 }
