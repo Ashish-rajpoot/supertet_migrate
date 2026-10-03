@@ -422,16 +422,22 @@ export interface WrongQuestion {
   lastWrongAt: number;
 }
 
+/** One subject the caller has wrong answers in, worst first. */
+export interface WrongSubjectRow {
+  subject: string;
+  wrong: number;
+}
+
 /**
- * The questions this student got wrong most, worst first. Returns null
- * when the server cannot be reached so the caller can fall back to the
- * local book instead of showing an empty page.
+ * The questions this student got wrong most, plus the subjects they have
+ * mistakes in. Returns null when the server cannot be reached so the caller
+ * can fall back to the local book instead of showing an empty page.
  *
  * userId / scope need the admin role, exactly as on fetchAttempts.
  */
 export async function fetchWrongQuestions(
   opts: { subject?: string; topic?: string; limit?: number; userId?: string; scope?: string } = {}
-): Promise<WrongQuestion[] | null> {
+): Promise<{ questions: WrongQuestion[]; subjects: WrongSubjectRow[] } | null> {
   const params = new URLSearchParams();
   if (opts.subject) params.set("subject", opts.subject);
   if (opts.topic) params.set("topic", opts.topic);
@@ -446,7 +452,10 @@ export async function fetchWrongQuestions(
     });
     if (!res.ok) return null;
     const data = await res.json();
-    return Array.isArray(data?.questions) ? (data.questions as WrongQuestion[]) : [];
+    return {
+      questions: Array.isArray(data?.questions) ? (data.questions as WrongQuestion[]) : [],
+      subjects: Array.isArray(data?.subjects) ? (data.subjects as WrongSubjectRow[]) : [],
+    };
   } catch {
     return null;
   }

@@ -74,11 +74,19 @@ export async function GET(req: Request) {
     else if (!wantsAll) attemptFilter.userId = auth.payload.id;
     else attemptFilter.userId = { $nin: ["", null] };
 
-    const detailFilter: Record<string, unknown> = { status: "wrong" };
+    // After $unwind every per-question field lives under `details.*`, so the
+    // filters must be namespaced the same way. Matching a bare `subject`
+    // would look for a top-level field the Attempt schema does not have
+    // (it has `subjects: [String]`), which matches NOTHING and silently
+    // empties the list. `status` is limited to wrong/correct here because
+    // skipped answers are not mistakes; `asked` counts both.
+    const detailFilter: Record<string, unknown> = {
+      "details.status": { $in: ["wrong", "correct"] },
+    };
     const subject = norm(q.get("subject"));
     const topic = norm(q.get("topic"));
-    if (subject) detailFilter.subject = ci(subject);
-    if (topic) detailFilter.topic = ci(topic);
+    if (subject) detailFilter["details.subject"] = ci(subject);
+    if (topic) detailFilter["details.topic"] = ci(topic);
 
     const limit = Math.min(parseInt(q.get("limit") || "50", 10) || 50, 200);
 
@@ -88,7 +96,7 @@ export async function GET(req: Request) {
     const rows = await Attempt.aggregate([
       { $match: attemptFilter },
       { $unwind: "$details" },
-      { $match: { ...detailFilter, "details.status": { $in: ["wrong", "correct"] } } },
+      { $match: detailFilter },
       {
         $group: {
           _id: "$details.id",
@@ -136,9 +144,31 @@ export async function GET(req: Request) {
       lastWrongAt: Number(r.lastWrongAt || 0),
     }));
 
+    // The Improve page builds its subject picker from the DEVICE book, so a
+    // subject that only ever existed on this device would show up in the
+    // dropdown and then return nothing here. Returning the caller's own
+    // subjects lets the picker list what the active source really has.
+    const subjectRows = await Attempt.aggregate([
+      { $match: attemptFilter },
+      { $unwind: "$details" },
+      { $match: { "details.status": "wrong" } },
+      {
+        $group: {
+          _id: "$details.subject",
+          wrong: { $sum: 1 },
+        },
+      },
+      { $sort: { wrong: -1, _id: 1 } },
+      { $limit: 200 },
+    ]);
+
     return Response.json({
       questions,
       count: questions.length,
+      // "" is the General bucket; keep it out of the picker.
+      subjects: subjectRows
+        .map((r) => ({ subject: String(r._id ?? ""), wrong: Number(r.wrong || 0) }))
+        .filter((r) => r.subject.trim()),
       scope: wantsAll ? "all" : wantsUser ? "user" : "mine",
     });
   } catch (err) {

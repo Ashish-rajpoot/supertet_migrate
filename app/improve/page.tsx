@@ -41,6 +41,7 @@ import { clearAttempts, getWrongBook, setWrongBook } from "@/lib/client/store";
 import {
   checkServerStatus,
   fetchWrongQuestions,
+  type WrongSubjectRow,
 } from "@/lib/client/sync";
 import { stashWeakIds } from "@/app/flashcards/page";
 
@@ -123,6 +124,10 @@ function ImproveInner() {
    *  Lazy initialiser: getWrongBook() parses localStorage, and the plain
    *  form would run that on every render just to throw it away. */
   const [book, setBook] = useState<WrongBook>(() => getWrongBook());
+  /** Subjects the CLOUD has mistakes in. The picker offers the union of
+   *  these and the device ones, so a subject never appears in the dropdown
+   *  and then returns nothing for the source actually in use. */
+  const [cloudSubjects, setCloudSubjects] = useState<WrongSubjectRow[]>([]);
 
   // A subject can be handed in from the Progress card (?subject=Name).
   const preSubject = params?.get("subject") || "";
@@ -165,7 +170,8 @@ function ImproveInner() {
         if (cloud) {
           setUsedCloud(true);
           setNotice("");
-          setRows(cloud);
+          setCloudSubjects(cloud.subjects);
+          setRows(cloud.questions);
           setLoading(false);
           return;
         }
@@ -173,6 +179,7 @@ function ImproveInner() {
 
       setUsedCloud(false);
       setNotice(st.online && st.mongo ? "" : tRef.current("improve.offline"));
+      setCloudSubjects([]);
       const local = getWrongBook();
       setBook(local);
       setRows(
@@ -209,23 +216,33 @@ function ImproveInner() {
       seen.add(k);
       out.push({ value: v, sub });
     };
-    // Missed subjects first, tagged, then everything else unlabelled.
+    // Missed subjects first (cloud ones tagged too - they outrank whatever is
+    // saved on this device), then every other subject either source knows.
     // `t` is a fresh function every render, so this memo recomputes each
     // time - harmless here (it is cheap, and no effect consumes it, so it
     // cannot loop). The load() effect is the one that must not depend on t.
+    cloudSubjects.forEach((r) => add(r.subject, t("improve.mostWrong")));
     bySubject.filter((r) => !r.untouched).forEach((r) => add(r.subject, t("improve.mostWrong")));
     bySubject.forEach((r) => add(r.subject));
     knownSubjects(book).forEach((s) => add(s));
     return out;
-  }, [book, t]);
+  }, [book, t, cloudSubjects]);
 
-  // Topics narrow as the subject changes.
+  // Topics narrow as the subject changes. Union of the device book and the
+  // rows actually on screen, so a topic that only exists in the cloud (or
+  // only on this device) is still offered - otherwise the box would look
+  // empty while the subject beside it is clearly selected.
   const topicChoices = useMemo(() => {
     const names = new Set<string>(knownTopics(book, subject));
+    for (const r of rows || []) {
+      if (!subject || (r.subject || "").toLowerCase() === subject.trim().toLowerCase()) {
+        if (r.topic) names.add(r.topic);
+      }
+    }
     return Array.from(names)
       .sort()
       .map((n) => ({ value: n }));
-  }, [book, subject]);
+  }, [book, subject, rows]);
 
   // A topic belongs to a subject, so clear one that no longer applies.
   useEffect(() => {
