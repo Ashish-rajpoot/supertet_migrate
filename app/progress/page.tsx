@@ -6,10 +6,11 @@
    mine (own cloud attempts), all (admin, user-wise roster with
    drill-down). Signed-out visitors get a login gate.
    =========================================================== */
-import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +27,7 @@ import { AuthDialog } from "@/components/auth-dialog";
 import { TrendChart } from "@/components/charts";
 import { EmptyState, PageShell } from "@/components/misc";
 import { useAuth } from "@/components/providers";
+import { useT } from "@/lib/i18n/t";
 import {
   breakdown as calcBreakdown,
   byDifficulty as calcDiff,
@@ -39,7 +41,9 @@ import {
   dedupeAttempts,
   deleteAttempt as deleteLocal,
   getAttempts as getLocalAttempts,
+  getWrongBook,
 } from "@/lib/client/store";
+import { worstQuestions } from "@/lib/data/wrong-book";
 import {
   checkServerStatus,
   clearServerAttempts,
@@ -473,6 +477,14 @@ function ScopeBody({
 
           <WeakCard weak={weak} />
 
+          {/* The per-question memory: the few questions this student keeps
+              answering wrongly. Unlike the breakdown above (built from the
+              attempt rows loaded here), the book is fed by every finished
+              run on this device and keeps a lifetime count, so it still
+              works once older attempts roll out of the 300-row window.
+              The full, cross-device drill lives on /improve. */}
+          <MostWrongCard attempts={data.attempts} />
+
           {diff.length ? (
             <Card>
               <CardContent className="flex flex-col gap-2 pt-5">
@@ -614,6 +626,98 @@ function WeakCard({ weak }: { weak: { key: string; accuracy: number; total: numb
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * The questions missed most often, with their lifetime wrong count.
+ *
+ * `attempts` lets the card fall back to the rows loaded for this view
+ * (which is how an admin looking at another student sees their
+ * mistakes, since the server list endpoint strips `details` and the
+ * local book only knows this device's runs).
+ */
+function MostWrongCard({ attempts }: { attempts: Attempt[] }) {
+  const router = useRouter();
+  const { t } = useT();
+
+  const worst = useMemo(() => {
+    const local = worstQuestions(getWrongBook(), { limit: 5 });
+    // The admin / cloud view has no local book for that student, so
+    // derive the same list from the attempt rows already in hand.
+    const counts = new Map<
+      string,
+      { id: string; subject: string; topic: string; wrong: number }
+    >();
+    for (const a of attempts || []) {
+      for (const d of a.details || []) {
+        if (d.status !== "wrong") continue;
+        const id = String(d.id);
+        if (!id) continue;
+        const row = counts.get(id) ?? {
+          id,
+          subject: d.subject || "",
+          topic: d.topic || "",
+          wrong: 0,
+        };
+        row.wrong += 1;
+        counts.set(id, row);
+      }
+    }
+    const scopeRows = Array.from(counts.values())
+      .sort((a, b) => b.wrong - a.wrong || String(a.id).localeCompare(String(b.id)))
+      .slice(0, 5);
+    // Prefer whichever source actually has rows for the view on screen.
+    return scopeRows.length >= local.length ? scopeRows : local;
+  }, [attempts]);
+
+  if (!worst.length) return null;
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-2 pt-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="font-semibold">{t("progress.mostWrong")}</h3>
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={() => router.push("/improve")}
+          >
+            {t("progress.improveCta")}
+          </Button>
+        </div>
+        <p className="text-sm text-muted-foreground">{t("progress.mostWrongDesc")}</p>
+        <div className="flex flex-col gap-1">
+          {worst.map((w) => (
+            <WrongRow key={w.id} w={w} />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** One wrong-question line: how many times, and which subject it is in. */
+function WrongRow({
+  w,
+}: {
+  w: { id: string; subject: string; topic: string; wrong: number };
+}) {
+  return (
+    <Link
+      href={`/improve?subject=${encodeURIComponent(w.subject)}`}
+      className="flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors hover:bg-muted/60"
+    >
+      <Badge variant="destructive" className="shrink-0">
+        {w.wrong}×
+      </Badge>
+      <span className="min-w-0 flex-1 truncate">
+        <span className="font-medium">{w.subject || "General"}</span>
+        <span className="block truncate text-xs text-muted-foreground">{w.topic}</span>
+      </span>
+      <ArrowRight className="size-3.5 shrink-0 opacity-60" />
+    </Link>
   );
 }
 

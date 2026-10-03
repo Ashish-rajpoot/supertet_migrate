@@ -25,6 +25,9 @@ export const NAV: NavLink[] = [
   { href: "/flashcards", label: "nav.flashcards", group: "study", hint: "nav.hint.flashcards" },
   { href: "/test", label: "nav.test", group: "study", hint: "nav.hint.test" },
   { href: "/progress", label: "nav.progress", group: "study", auth: true, hint: "nav.hint.progress" },
+  // Never gated: a signed-out device still has a local mistake book, so
+  // the revision drill has to be reachable offline too.
+  { href: "/improve", label: "nav.improve", group: "study", hint: "nav.hint.improve" },
   { href: "/questions", label: "nav.questions", group: "manage", editor: true, hint: "nav.hint.questions" },
   { href: "/subjects", label: "nav.subjects", group: "manage", admin: true, hint: "nav.hint.subjects" },
   { href: "/users", label: "nav.users", group: "manage", admin: true, hint: "nav.hint.users" },

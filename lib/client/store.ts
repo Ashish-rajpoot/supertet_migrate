@@ -4,6 +4,13 @@
    classic site keeps its bank, results, cards and settings.
    =========================================================== */
 import type { Attempt, AuthSession, PublicUser, Question, Settings } from "@/lib/types";
+import {
+  applyAttempt,
+  applyAttempts,
+  normaliseBook,
+  rebuildBook,
+  type WrongBook,
+} from "@/lib/data/wrong-book";
 import { uid } from "./util";
 
 const K = {
@@ -12,6 +19,7 @@ const K = {
   settings: "stp.settings",
   cards: "stp.cards",
   hidden: "stp.hidden",
+  wrongBook: "stp.wrongBook",
 } as const;
 
 /** Session key (token + user), shared with the sync layer. */
@@ -223,22 +231,70 @@ export function addAttempt(attempt: Attempt) {
   if (at >= 0) list[at] = attempt;
   else list.push(attempt);
   write(K.attempts, list.slice(-300)); // keep storage bounded
+  // Fold the answers into the mistake book straight away, so the Improve
+  // page is right even if the student never reopens their history.
+  recordAttemptInBook(attempt);
   return attempt;
 }
 
 export function deleteAttempt(id: string) {
-  write(
-    K.attempts,
-    getAttempts().filter((a) => a.id !== id)
-  );
+  const rest = getAttempts().filter((a) => a.id !== id);
+  write(K.attempts, rest);
+  // Rebuild from what is left rather than patching counts, so the book
+  // can never keep a mistake whose result the student just deleted.
+  setWrongBook(rebuildBook(rest));
 }
 
 export function clearAttempts() {
   write(K.attempts, []);
+  setWrongBook(rebuildBook([]));
 }
 
 export const getAttempt = (id: string): Attempt | null =>
   getAttempts().find((a) => a.id === id) || null;
+
+/* ---------------- wrong-answer book (per-question mistakes) ----------------
+   A separate tally from stp.attempts: the attempt list is capped at 300
+   rows, so a mistake made long ago would silently stop counting. The book
+   keeps the lifetime number per question instead, which is what the
+   Improve page sorts on. See lib/data/wrong-book.ts. */
+
+/** The device mistake book. Always a well-formed book, never null. */
+export function getWrongBook(): WrongBook {
+  return normaliseBook(read<unknown>(K.wrongBook, null));
+}
+
+export function setWrongBook(book: WrongBook): WrongBook {
+  const next = normaliseBook(book);
+  write(K.wrongBook, next);
+  return next;
+}
+
+/**
+ * Count one finished run's answers. An attempt id already folded in is
+ * skipped, so the timer's auto-submit racing the Finish button (or a
+ * sync retry re-saving the same result) cannot inflate a mistake count.
+ */
+export function recordAttemptInBook(attempt: Attempt): WrongBook {
+  const next = applyAttempt(getWrongBook(), attempt);
+  setWrongBook(next);
+  return next;
+}
+
+/**
+ * Fold saved results in without wiping what is already there - used when
+ * a device pulls its cloud history for the first time.
+ */
+export function mergeAttemptsInBook(attempts: Attempt[]): WrongBook {
+  const next = applyAttempts(getWrongBook(), attempts || []);
+  setWrongBook(next);
+  return next;
+}
+
+/** Drop the book entirely (fresh start, or a student who cleared results). */
+export function clearWrongBook() {
+  write(K.wrongBook, rebuildBook([]));
+}
 
 /* ---------------- flashcard progress (Leitner boxes) ---------------- */
 export interface CardState {

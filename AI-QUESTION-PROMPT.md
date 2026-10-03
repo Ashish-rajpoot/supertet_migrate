@@ -1,4 +1,4 @@
-# AI question-writing prompt
+﻿# AI question-writing prompt
 
 Need questions for your test bank? You do not have to type them one by one. Copy the prompt below, paste it into **any** LLM - ChatGPT, Claude, Gemini, Copilot, DeepSeek, Grok, a local Ollama model - and the model will reply with a JSON array in the exact column layout this website imports. The answer-key, the question text in the medium you choose (Hindi, English or both) and explanations are all included.
 
@@ -54,7 +54,7 @@ FIELD RULES
 - opt1..opt4 (hi and en): exactly four options, in the same order in both columns when both are used, plausible and similar in length. Never use "all of the above", "none of the above" or "both A and B".
 - answer: only the letter of the correct option - "A", "B", "C" or "D" - matching its position (opt1 = A, opt2 = B, opt3 = C, opt4 = D). Exactly one option is correct. Spread the correct letters roughly evenly across the batch.
 - expl_hi / expl_en: a 1-2 sentence explanation, in the language(s) required by MEDIUM RULES, saying WHY the answer is correct.
-- tags: 2-4 lowercase keywords separated by commas, e.g. "important days, national".
+- tags: 2-4 lowercase keywords separated by commas, e.g. "important days, national". The FIRST tag must be the real source of the question (see SOURCE RULES 4), e.g. "supertet-2023-paper1, important days, national".
 
 QUALITY RULES
 1. Factually correct and unambiguous - no opinions, no trick wording.
@@ -62,6 +62,21 @@ QUALITY RULES
 3. No duplicate questions inside the batch.
 4. Whenever Hindi is used it must be natural Devanagari, not transliterated English.
 5. When both languages are filled, dates, numbers and proper nouns must match between the Hindi and English versions.
+6. Prefer questions a candidate can verify: avoid heavily statement-based "which of the following is not correct" items unless the source uses them.
+
+SOURCE RULES (non-negotiable)
+These are exam questions for real candidates, so every one of them must trace back to a real published question paper. This is a hard rule, not a preference:
+1. DO NOT invent, simulate or programmatically generate questions. No scripts, no loops, no templates, no "question 1 / question 2 with the numbers swapped", no auto-combinations of facts, no synthetic patterns. Writing with a script is forbidden.
+2. DO NOT fabricate facts, figures, dates, names or paper codes. Every question must come from a source that really exists.
+3. Use REAL sources only, in this order of preference:
+   - previous-year question papers of the same exam family (CTET, SuperTET, TET, REET, KVS, NVS, DSSSB, UGC NET, state TET papers) - real papers of the real board
+   - the official syllabus and the prescribed textbooks / NCERT for that exam
+   - official examination-board websites and official gazette notifications
+   - established exam-prep sources that quote a paper they can name
+4. Name the source of every question in its tags, in this style: "supertet-2023-paper1", "ctet-2019-paper2", "ncert-class10-ch3". One source tag per question. If you cannot name a real source for a question, do not include that question.
+5. Keep the wording of a real paper question as close to the original as you can. If you reword it, keep the facts, the options and the correct answer identical to the source - never change which option the source marks correct.
+6. Difficulty and count are filters over real questions, never a licence to make them up. If there are not enough real {{SUBJECT}} / {{TOPIC}} questions to fill the batch, return fewer rows rather than inventing rows, and do not pad the batch with questions from a different subject or topic.
+7. Never write a question "in the style of" a paper or invent a paper code, year or paper number. Either the paper exists or the question does not go in the output.
 
 EXAMPLE (the exact shape - do not copy the content)
 [
@@ -83,13 +98,13 @@ EXAMPLE (the exact shape - do not copy the content)
     "answer": "B",
     "expl_hi": "12 जनवरी को स्वामी विवेकानंद का जन्मदिन है।",
     "expl_en": "12 January is Swami Vivekananda's birth anniversary.",
-    "tags": "important days, national"
+    "tags": "supertet-2023-paper1, important days, national"
   }
 ]
 
 The example shows the bilingual medium; for "Hindi" or "English" medium fill only the columns named in MEDIUM RULES and leave the others as empty strings "".
 
-Now output the JSON array with exactly {{N}} questions per difficulty - {{TOTAL}} in all - for {{SUBJECT}} / {{TOPIC}} (medium: {{MEDIUM}}). Remember: only the JSON array, nothing else.
+Now output the JSON array with exactly {{N}} questions per difficulty - {{TOTAL}} in all - for {{SUBJECT}} / {{TOPIC}} (medium: {{MEDIUM}}), every one of them taken from a real source and tagged with it. If you cannot find enough real sourced questions, output only the ones you can source. Remember: only the JSON array, nothing else.
 ```
 
 
@@ -117,7 +132,7 @@ If you replace the slots with `{{N}} = 5`, `{{SUBJECT}} = GK & GS`, `{{TOPIC}} =
     "answer": "B",
     "expl_hi": "12 जनवरी को स्वामी विवेकानंद का जन्मदिन है।",
     "expl_en": "12 January is Swami Vivekananda's birth anniversary.",
-    "tags": "important days, national"
+    "tags": "supertet-2023-paper1, important days, national"
   }
 ]
 ```

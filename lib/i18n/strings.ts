@@ -21,6 +21,7 @@ export const STRINGS = {
   "nav.flashcards": { hi: "फ्लैशकार्ड", en: "Flashcards" },
   "nav.test": { hi: "टेस्ट", en: "Test" },
   "nav.progress": { hi: "प्रगति", en: "Progress" },
+  "nav.improve": { hi: "सुधारें", en: "Improve" },
   "nav.questions": { hi: "प्रश्न", en: "Questions" },
   "nav.subjects": { hi: "विषय", en: "Subjects" },
   "nav.users": { hi: "उपयोगकर्ता", en: "Users" },
@@ -34,6 +35,10 @@ export const STRINGS = {
   "nav.hint.flashcards": { hi: "तेज़ रिवीजन के लिए कार्ड पलटें", en: "Flip cards for quick revision" },
   "nav.hint.test": { hi: "समयबद्ध टेस्ट, तुरंत परिणाम", en: "Timed test with instant scoring" },
   "nav.hint.progress": { hi: "अंक, कमज़ोर विषय और रुझान", en: "Scores, weak topics and trends" },
+  "nav.hint.improve": {
+    hi: "सबसे ज़्यादा गलत किए प्रश्न दोहराएँ",
+    en: "Revise the questions you got wrong most",
+  },
   "nav.hint.questions": { hi: "प्रश्न अपलोड, देखें और निर्यात करें", en: "Upload, preview and export questions" },
   "nav.hint.subjects": { hi: "सिलेबस विषय और टॉपिक", en: "Syllabus subjects and topics" },
   "nav.hint.users": {
@@ -539,6 +544,65 @@ export const STRINGS = {
   "common.topics": { hi: "टॉपिक", en: "Topics" },
   "common.difficulty": { hi: "कठिनाई", en: "Difficulty" },
   "common.new": { hi: "नया", en: "New" },
+  "common.refresh": { hi: "रीफ़्रेश", en: "Refresh" },
+
+  /* ---------------- improve (wrong-answer revision) ---------------- */
+  "improve.title": { hi: "सुधारें", en: "Improve" },
+  "improve.desc": {
+    hi: "जो प्रश्न आप सबसे ज़्यादा गलत कर चुके हैं, वे पहले।",
+    en: "The questions you got wrong most come first.",
+  },
+  "improve.pickSubject": { hi: "विषय चुनें", en: "Pick a subject" },
+  "improve.anySubject": { hi: "कोई भी विषय", en: "Any subject" },
+  "improve.anyTopic": { hi: "कोई भी टॉपिक", en: "Any topic" },
+  "improve.source.device": { hi: "इस डिवाइस के परिणाम", en: "This device" },
+  "improve.source.cloud": { hi: "मेरे क्लाउड परिणाम", en: "My cloud results" },
+  "improve.totals": {
+    hi: "{questions} प्रश्नों में {missed} गलत · कुल {wrong} बार गलत",
+    en: "{missed} of {questions} questions missed · {wrong} wrong answers in all",
+  },
+  "improve.wrongTimes": { hi: "{n} बार गलत", en: "Wrong {n} times" },
+  "improve.askedTimes": { hi: "कुल {asked} बार पूछा गया", en: "Asked {asked} times in all" },
+  "improve.clearDone": { hi: "इतिहास मिटा दिया गया", en: "History cleared" },
+  "improve.mostWrong": {
+    hi: "सबसे ज़्यादा गलत",
+    en: "Most wrong",
+  },
+  "improve.practiseThese": { hi: "इन्हें दोहराएँ", en: "Practise these" },
+  "improve.flashcards": { hi: "फ्लैशकार्ड से", en: "Flashcards" },
+  "improve.testSubject": { hi: "इस विषय का टेस्ट", en: "Test this subject" },
+  "improve.empty.title": { hi: "अभी कोई गलती दर्ज नहीं", en: "No mistakes recorded yet" },
+  "improve.empty.hint": {
+    hi: "टेस्ट दीजिए - जो प्रश्न गलत होंगे, वे यहाँ सबसे ऊपर दिखेंगे।",
+    en: "Take a test - the questions you get wrong will show up here, worst first.",
+  },
+  "improve.empty.filtered": {
+    hi: "इस विषय में कोई गलत उत्तर नहीं मिला।",
+    en: "No wrong answers in this subject.",
+  },
+  "improve.clear": { hi: "इतिहास मिटाएँ", en: "Clear history" },
+  "improve.clearConfirm": {
+    hi: "इस डिवाइस के सभी परिणाम और गलती का हिसाब मिटा दें? यह वापस नहीं होगा।",
+    en: "Delete every result and the mistake history saved on this device? This cannot be undone.",
+  },
+  "improve.offline": {
+    hi: "सर्वर ऑफ़लाइन है - इस डिवाइस के परिणाम दिख रहे हैं।",
+    en: "The server is offline - showing the results saved on this device.",
+  },
+  "improve.noQuestionsInBank": {
+    hi: "इन प्रश्नों में से कुछ अब बैंक में नहीं हैं, इसलिए अभ्यास छोड़ा गया।",
+    en: "Some of these questions are no longer in the bank, so the drill was skipped.",
+  },
+  "progress.mostWrong": { hi: "सबसे ज़्यादा गलत प्रश्न", en: "Most wrong questions" },
+  "progress.mostWrongDesc": {
+    hi: "वही प्रश्न जो बार-बार गलत हुए - इन्हें दोहराएँ।",
+    en: "The questions that keep coming out wrong - revise these.",
+  },
+  "progress.improveCta": { hi: "विषय चुनकर सुधारें", en: "Improve by subject" },
+  "progress.noneYet": {
+    hi: "अभी तक कोई गलत प्रश्न दर्ज नहीं।",
+    en: "No wrong questions recorded yet.",
+  },
 
   /* ---------------- test ---------------- */
   "test.title": { hi: "टेस्ट", en: "Test" },

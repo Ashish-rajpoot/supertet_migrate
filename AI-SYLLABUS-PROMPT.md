@@ -38,6 +38,18 @@ TOPIC RULES
 - Where you know the real chapter split of that exam, follow it, so the list matches the book.
 - Keep the names inside one subject on the same level of detail.
 
+SOURCE RULES (non-negotiable)
+The syllabus must be the real one, because every question the students sit is drawn from it. This is a hard rule, not a preference:
+1. DO NOT invent, guess or programmatically generate the chapter list. No scripts, no loops, no templates, no "chapter 1 to chapter 10" padding, no guessing at counts. Generating the list with a script is forbidden.
+2. Every subject and topic must exist in the real {{EXAM}} syllabus. Do not invent a chapter no textbook has, and do not merge or rename one that does.
+3. Copy from these real sources, in this order of preference:
+   - the official syllabus PDF published by the conducting body for the {{EXAM}} of the latest cycle
+   - the prescribed textbooks / NCERT chapters that the official syllabus names
+   - the official examination-board or department website, and its official notifications
+4. Use the real paper and subject names of that exam. If the official syllabus names "Paper I" and "Paper II" (or "Level 1" and "Level 2"), keep those names instead of inventing your own.
+5. Never write "topics typical of this exam", "topics commonly asked", or anything similar. Only the chapters that are actually on the real syllabus. If you are unsure whether a chapter is really there, leave it out.
+6. If you cannot confirm a complete official list, output the chapters you can confirm from a real source rather than filling the gap with invented ones.
+
 OUTPUT FORMAT
 Reply with ONE JSON array and nothing else: no introduction, no commentary, no markdown code fences, no trailing notes. Every array element is one subject object with exactly these three keys, in this order:
 
@@ -65,7 +77,7 @@ EXAMPLE (the content is made up, the shape is what matters)
   }
 ]
 
-Now output the JSON array with one object per subject named above, each carrying that subject's full topic list, for the {{EXAM}} exam. Hindi names: {{MEDIUM}}. Remember: only the JSON array, nothing else.
+Now output the JSON array with one object per subject named above, each carrying that subject's full topic list exactly as the real official {{EXAM}} syllabus has it. Hindi names: {{MEDIUM}}. Remember: only the JSON array, nothing else.
 ```
 
 ## Bring them into the site
