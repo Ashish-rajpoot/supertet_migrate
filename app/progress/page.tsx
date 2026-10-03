@@ -315,6 +315,12 @@ function ScopeBody({
     if (cloud) {
       try {
         const res = await clearServerAttempts();
+        // The device keeps its own copy of the same results, and the
+        // mistake book that decides whether the Improve link shows at all.
+        // Clearing only the cloud left the book behind, so the link kept
+        // offering to revise results the user had just deleted. Only wiped
+        // after the server confirms, so a failed clear loses nothing.
+        clearLocal();
         toast.success("Cleared " + res.count + " result(s)");
       } catch {
         toast.error("Could not clear the results. Please log in again.");
