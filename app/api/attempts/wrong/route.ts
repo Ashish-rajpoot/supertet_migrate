@@ -83,10 +83,20 @@ export async function GET(req: Request) {
     const detailFilter: Record<string, unknown> = {
       "details.status": { $in: ["wrong", "correct"] },
     };
-    const subject = norm(q.get("subject"));
-    const topic = norm(q.get("topic"));
-    if (subject) detailFilter["details.subject"] = ci(subject);
-    if (topic) detailFilter["details.topic"] = ci(topic);
+    // Repeated params mean "any of": ?subject=A&subject=B matches either.
+    // Each value is its own $or clause rather than one $in of regexes -
+    // Mongo rejects nesting $ under $in. Separate $and members keep the
+    // subject and topic any-ofs from overwriting each other.
+    const subjects = q.getAll("subject").map((s) => norm(s)).filter(Boolean);
+    const topics = q.getAll("topic").map((s) => norm(s)).filter(Boolean);
+    const anyOf: Record<string, unknown>[] = [];
+    if (subjects.length) {
+      anyOf.push({ $or: subjects.map((s) => ({ "details.subject": ci(s) })) });
+    }
+    if (topics.length) {
+      anyOf.push({ $or: topics.map((t) => ({ "details.topic": ci(t) })) });
+    }
+    if (anyOf.length) detailFilter.$and = anyOf;
 
     const limit = Math.min(parseInt(q.get("limit") || "50", 10) || 50, 200);
 

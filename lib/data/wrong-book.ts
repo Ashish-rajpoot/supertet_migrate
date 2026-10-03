@@ -179,34 +179,44 @@ export function rebuildBook(attempts: Attempt[]): WrongBook {
   return applyAttempts(EMPTY_BOOK, attempts || []);
 }
 export interface WorstFilter {
-  /** "" = every subject. Matched case-insensitively. */
-  subject?: string;
-  /** "" = every topic inside the subject. */
-  topic?: string;
+  /** "" or empty = every subject. One or many, matched any-of. */
+  subject?: string | string[];
+  /** "" or empty = every topic inside the subject(s). One or many. */
+  topic?: string | string[];
   /** How many rows to return. */
   limit?: number;
   /** Keep only questions with at least this many mistakes (default 1). */
   minWrong?: number;
 }
 
+/** A single value, or the several given, all lower-cased. */
+const wants = (v: string | string[] | undefined): string[] =>
+  [v ?? ""]
+    .flat()
+    .map((x) => loose(x))
+    .filter(Boolean);
+
 /**
  * The questions worth re-practising, worst first. Only questions the
  * student actually got wrong at least once are returned - a question
  * answered correctly every time is not what "improve" is about.
  *
+ * Several subjects/topics mean "any of", matching the repeated query
+ * parameters the API takes.
+ *
  * Order: lifetime wrong count desc, then the most recent mistake, then
  * the question id so two equal rows never swap between renders.
  */
 export function worstQuestions(book: WrongBook, filter: WorstFilter = {}): WrongEntry[] {
-  const wantSubject = loose(filter.subject);
-  const wantTopic = loose(filter.topic);
+  const wantSubjects = wants(filter.subject);
+  const wantTopics = wants(filter.topic);
   const minWrong = filter.minWrong == null ? 1 : Math.max(0, filter.minWrong);
   const limit = filter.limit == null ? 50 : Math.max(0, filter.limit);
 
   return listEntries(book)
     .filter((e) => e.wrong > 0 && e.wrong >= minWrong)
-    .filter((e) => !wantSubject || loose(e.subject) === wantSubject)
-    .filter((e) => !wantTopic || loose(e.topic) === wantTopic)
+    .filter((e) => !wantSubjects.length || wantSubjects.includes(loose(e.subject)))
+    .filter((e) => !wantTopics.length || wantTopics.includes(loose(e.topic)))
     .sort(
       (a, b) =>
         b.wrong - a.wrong ||
@@ -256,13 +266,13 @@ export function knownSubjects(book: WrongBook): string[] {
   return Array.from(new Set(listEntries(book).map((e) => e.subject || "General"))).sort();
 }
 
-/** Every topic inside one subject, mistakes or not. */
-export function knownTopics(book: WrongBook, subject: string): string[] {
-  const want = loose(subject);
+/** Every topic inside the given subject(s), mistakes or not. */
+export function knownTopics(book: WrongBook, subject?: string | string[]): string[] {
+  const want = wants(subject);
   return Array.from(
     new Set(
       listEntries(book)
-        .filter((e) => !want || loose(e.subject) === want)
+        .filter((e) => !want.length || want.includes(loose(e.subject)))
         .map((e) => e.topic || "General")
     )
   ).sort();

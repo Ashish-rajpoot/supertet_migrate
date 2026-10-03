@@ -154,10 +154,13 @@ function TestInner() {
         return;
       }
       saveRun(null);
-      const pre = params.get("subject") || "";
-      const preTopic = params.get("topic") || "";
-      if (pre) setSubjects([pre]);
-      if (preTopic) setTopics([preTopic]);
+      // Repeated params mean "any of": ?subject=A&subject=B picks both.
+      const preList = params.getAll("subject").map((s) => s.trim()).filter(Boolean);
+      const topicList = params.getAll("topic").map((s) => s.trim()).filter(Boolean);
+      const pre = preList[0] || "";
+      const preTopic = topicList[0] || "";
+      if (preList.length) setSubjects(preList);
+      if (topicList.length) setTopics(topicList);
 
       // A deep link can START a run outright, so nobody has to pick the
       // subject / count / timer again by hand - that is what the Improve
@@ -197,7 +200,9 @@ function TestInner() {
 
       if (params.get("start") === "1") {
         const pool = all.filter(
-          (q) => (!pre || q.subject === pre) && (!preTopic || q.topic === preTopic)
+          (q) =>
+            (!preList.length || preList.includes(q.subject)) &&
+            (!topicList.length || topicList.includes(q.topic))
         );
         if (pool.length) {
           const mode = params.get("mode") === "practice" ? "practice" : "test";
@@ -207,7 +212,10 @@ function TestInner() {
             count: Math.min(numParam("count", 20, 200), pool.length),
             minutes: numParam("minutes", 20, 240),
             mode,
-            label: pre || "Test",
+            // Label the run after what was asked for, not just the first pick.
+            label:
+              preList.join(", ") ||
+              (topicList.length ? topicList.join(", ") : "Test"),
             negative: mode === "test",
             showExpl: mode === "practice",
             shufO: true,

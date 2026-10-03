@@ -553,6 +553,8 @@ export const STRINGS = {
     en: "The questions you got wrong most come first.",
   },
   "improve.pickSubject": { hi: "विषय चुनें", en: "Pick a subject" },
+  "improve.selectedSubjects": { hi: "{n} विषय चुने", en: "{n} subject(s) selected" },
+  "improve.selectedTopics": { hi: "{n} टॉपिक चुने", en: "{n} topic(s) selected" },
   "improve.anySubject": { hi: "कोई भी विषय", en: "Any subject" },
   "improve.anyTopic": { hi: "कोई भी टॉपिक", en: "Any topic" },
   "improve.topicOptional": {

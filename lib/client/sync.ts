@@ -436,11 +436,24 @@ export interface WrongSubjectRow {
  * userId / scope need the admin role, exactly as on fetchAttempts.
  */
 export async function fetchWrongQuestions(
-  opts: { subject?: string; topic?: string; limit?: number; userId?: string; scope?: string } = {}
+  opts: {
+    subject?: string | string[];
+    topic?: string | string[];
+    limit?: number;
+    userId?: string;
+    scope?: string;
+  } = {}
 ): Promise<{ questions: WrongQuestion[]; subjects: WrongSubjectRow[] } | null> {
   const params = new URLSearchParams();
-  if (opts.subject) params.set("subject", opts.subject);
-  if (opts.topic) params.set("topic", opts.topic);
+  // Repeated params mean "any of" on the server.
+  const addAll = (name: string, v: string | string[] | undefined) => {
+    for (const one of [v || []].flat()) {
+      const s = String(one || "").trim();
+      if (s) params.append(name, s);
+    }
+  };
+  addAll("subject", opts.subject);
+  addAll("topic", opts.topic);
   if (opts.limit) params.set("limit", String(opts.limit));
   if (opts.userId) params.set("userId", opts.userId);
   if (opts.scope) params.set("scope", opts.scope);
