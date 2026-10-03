@@ -12,7 +12,7 @@
    This is the "I want to improve this subject" screen: pick a
    subject, get the questions missed most, then practise them.
    =========================================================== */
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -100,6 +100,18 @@ function ImproveInner() {
   const { t } = useT();
   const { signedIn, ready } = useAuth();
 
+  /* useT() hands back a NEW `t` on every render, so listing it as a
+     dependency of load() would rebuild load on every render, the effect
+     below would re-run, and the page would poll /api/status (plus the
+     /api/attempts/wrong aggregation) forever. Read the translator
+     through a ref instead, the same way app/page.tsx and app/test/page.tsx
+     do it. Only the async load reads it - render-path code still calls t
+     directly, because react-hooks/refs forbids reading a ref while rendering. */
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  });
+
   const [subject, setSubject] = useState("");
   const [topic, setTopic] = useState("");
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -107,8 +119,10 @@ function ImproveInner() {
   const [notice, setNotice] = useState("");
   /** Whether the last load came from the cloud or fell back to the device. */
   const [usedCloud, setUsedCloud] = useState(false);
-  /** The device mistake book, held in state so the pickers rerun on change. */
-  const [book, setBook] = useState<WrongBook>(getWrongBook());
+  /** The device mistake book, held in state so the pickers rerun on change.
+   *  Lazy initialiser: getWrongBook() parses localStorage, and the plain
+   *  form would run that on every render just to throw it away. */
+  const [book, setBook] = useState<WrongBook>(() => getWrongBook());
 
   // A subject can be handed in from the Progress card (?subject=Name).
   const preSubject = params?.get("subject") || "";
@@ -118,15 +132,28 @@ function ImproveInner() {
   }, [preSubject]);
 
   /**
+   * Bumped on every load. A slow response from an earlier selection must
+   * never overwrite a newer one - the student can change subject or topic
+   * while the first fetch is still in flight.
+   */
+  const loadSeq = useRef(0);
+
+  /**
    * Cloud first when there is an account and the database is up: the
    * server remembers every attempt, while the local book only knows what
    * this device saved. A null answer means the call failed, so fall back
    * to the device; an empty array is a real "nothing was missed".
+   *
+   * Deliberately depends only on `signedIn`: see the tRef note above.
    */
   const load = useCallback(
     async (wantSubject: string, wantTopic: string) => {
+      const seq = ++loadSeq.current;
+      const superseded = () => seq !== loadSeq.current;
+
       setLoading(true);
       const st = await checkServerStatus();
+      if (superseded()) return;
 
       if (st.online && st.mongo && signedIn) {
         const cloud = await fetchWrongQuestions({
@@ -134,6 +161,7 @@ function ImproveInner() {
           topic: wantTopic,
           limit: ROW_LIMIT,
         });
+        if (superseded()) return;
         if (cloud) {
           setUsedCloud(true);
           setNotice("");
@@ -144,7 +172,7 @@ function ImproveInner() {
       }
 
       setUsedCloud(false);
-      setNotice(st.online && st.mongo ? "" : t("improve.offline"));
+      setNotice(st.online && st.mongo ? "" : tRef.current("improve.offline"));
       const local = getWrongBook();
       setBook(local);
       setRows(
@@ -156,7 +184,7 @@ function ImproveInner() {
       );
       setLoading(false);
     },
-    [signedIn, t]
+    [signedIn]
   );
 
   useEffect(() => {
@@ -182,6 +210,9 @@ function ImproveInner() {
       out.push({ value: v, sub });
     };
     // Missed subjects first, tagged, then everything else unlabelled.
+    // `t` is a fresh function every render, so this memo recomputes each
+    // time - harmless here (it is cheap, and no effect consumes it, so it
+    // cannot loop). The load() effect is the one that must not depend on t.
     bySubject.filter((r) => !r.untouched).forEach((r) => add(r.subject, t("improve.mostWrong")));
     bySubject.forEach((r) => add(r.subject));
     knownSubjects(book).forEach((s) => add(s));
