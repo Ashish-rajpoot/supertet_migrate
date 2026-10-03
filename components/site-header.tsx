@@ -206,11 +206,11 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-2 px-4">
-        <Link href="/" className="flex items-center gap-2 font-bold">
+        <Link href="/" className="flex shrink-0 items-center gap-2 font-bold">
           <GraduationCap className="size-6 text-primary" />
           <span>SuperTET Prep</span>
         </Link>
-        <nav className="ml-2 hidden items-center gap-1 lg:flex" aria-label={t("auth.primaryNav")}>
+        <nav className="ml-2 hidden min-w-0 items-center gap-1 overflow-x-auto xl:flex" aria-label={t("auth.primaryNav")}>
           {/* Study links only - the ones a student actually reaches for. */}
           {topLinks.map((l) => (
             <Link
@@ -264,10 +264,18 @@ export function SiteHeader() {
             </DropdownMenu>
           ) : null}
         </nav>
-        <div className="ml-auto hidden items-center gap-1.5 sm:flex">
+        <div className="ml-auto hidden shrink-0 items-center gap-1.5 sm:flex">
           <UserChip />
         </div>
-        <div className="ml-auto flex items-center gap-1 sm:hidden">
+        {/* The drawer trigger must stay visible right up to the width where
+            the inline nav appears. The nav is hidden below xl, so an sm:hidden
+            trigger left the whole 640-1023px band - tablets, landscape phones,
+            narrow windows - with no navigation at all. The two breakpoints have
+            to be the same value or one of the two always wins and the gap
+            between them is unreachable.
+            xl rather than lg also keeps the nav honest at the largest text
+            size: at 125% the study links no longer fit across 1024px. */}
+        <div className="ml-auto flex shrink-0 items-center gap-1 xl:hidden">
           <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" aria-label={t("auth.openMenu")}>
