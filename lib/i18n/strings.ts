@@ -630,6 +630,12 @@ export const STRINGS = {
     en: "Show explanations in practice mode",
   },
   "test.sw.shuffle": { hi: "विकल्प मिलाएँ", en: "Shuffle options" },
+  "test.sw.autoNext": {
+    hi: "उत्तर चुनते ही अगले प्रश्न पर जाएँ",
+    en: "Move to the next question as soon as I answer",
+  },
+  "test.autoNext.on": { hi: "अगला: अपने आप", en: "Auto next" },
+  "test.autoNext.off": { hi: "अगला: मैं चुनूँगा", en: "Manual next" },
   "test.startPractice": { hi: "अभ्यास शुरू करें", en: "Start practice" },
   "test.startTest": { hi: "टेस्ट शुरू करें", en: "Start test" },
   "test.bankLine": {

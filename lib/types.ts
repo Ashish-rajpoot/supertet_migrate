@@ -200,6 +200,8 @@ export interface Settings {
   negativeMarking: number;
   showExplanation: boolean;
   shuffleOptions: boolean;
+  /** Move to the next question as soon as an option is picked. */
+  autoNext: boolean;
   name: string;
   apiUrl: string;
   googleClientId: string;

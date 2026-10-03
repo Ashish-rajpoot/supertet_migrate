@@ -119,6 +119,7 @@ function Inner({ children }: { children: ReactNode }) {
     negativeMarking: 0,
     showExplanation: true,
     shuffleOptions: true,
+    autoNext: false,
     name: "",
     apiUrl: "",
     googleClientId: "",

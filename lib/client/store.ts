@@ -318,6 +318,7 @@ export const DEFAULT_SETTINGS: Settings = {
   negativeMarking: 0,
   showExplanation: true,
   shuffleOptions: true,
+  autoNext: false,
   name: "",
   apiUrl: "",
   googleClientId: "",
