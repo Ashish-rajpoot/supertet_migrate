@@ -238,7 +238,19 @@ function ImproveInner() {
 
   /* ---------------- actions ---------------- */
 
-  /** Practise exactly these questions: stash the ids, then hand over. */
+  /** The current subject / topic as query values; topic is optional. */
+  function scopeParams(): string {
+    const parts: string[] = [];
+    if (subject) parts.push("subject=" + encodeURIComponent(subject));
+    if (topic) parts.push("topic=" + encodeURIComponent(topic));
+    return parts.length ? "&" + parts.join("&") : "";
+  }
+
+  /**
+   * Practise exactly these questions: stash the ids, then hand over. The
+   * subject and topic ride along so the test page can also pre-fill its
+   * form - and it starts the run itself, so nothing has to be picked again.
+   */
   function practise(ids: string[], target: "test" | "flashcards") {
     const unique = Array.from(new Set(ids.filter(Boolean))).slice(0, DRILL_LIMIT);
     if (!unique.length) {
@@ -246,7 +258,23 @@ function ImproveInner() {
       return;
     }
     stashWeakIds(unique);
-    router.push(target === "test" ? "/test?weak=1" : "/flashcards?weak=1");
+    router.push(
+      target === "test"
+        ? `/test?weak=1${scopeParams()}`
+        : `/flashcards?weak=1${scopeParams()}`
+    );
+  }
+
+  /**
+   * A full timed test on the chosen subject (and topic, when one is picked).
+   * `start=1` tells the test page to begin immediately instead of showing
+   * its setup form, which is the whole point - no re-selecting anything.
+   * Without a subject there is nothing to scope a test to, so this button
+   * stays hidden until one is chosen.
+   */
+  function testThisSubject() {
+    if (!subject) return;
+    router.push(`/test?start=1&mode=test${scopeParams()}`);
   }
 
   function clearHistory() {
@@ -288,7 +316,7 @@ function ImproveInner() {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="improve-topic">{t("common.topics")}</Label>
+            <Label htmlFor="improve-topic">{t("improve.topicOptional")}</Label>
             <ComboBox
               id="improve-topic"
               value={topic}
@@ -296,11 +324,15 @@ function ImproveInner() {
               options={topicChoices}
               placeholder={t("improve.anyTopic")}
               emptyText={t("improve.empty.filtered")}
-              ariaLabel={t("common.topics")}
+              ariaLabel={t("improve.topicOptional")}
             />
           </div>
         </CardContent>
       </Card>
+
+      {/* Topic is a refinement, never a requirement - say so, because the
+          obvious reading of two stacked filters is "both are needed". */}
+      <p className="text-xs text-muted-foreground">{t("improve.topicHint")}</p>
 
       {notice ? (
         <p className="text-sm text-amber-600 dark:text-amber-500">{notice}</p>
@@ -341,10 +373,8 @@ function ImproveInner() {
                   <Layers /> {t("improve.flashcards")}
                 </Button>
                 {subject ? (
-                  <Button size="sm" variant="outline" asChild>
-                    <Link href={`/test?subject=${encodeURIComponent(subject)}`}>
-                      {t("improve.testSubject")}
-                    </Link>
+                  <Button size="sm" variant="outline" onClick={testThisSubject}>
+                    {t("improve.testSubject")}
                   </Button>
                 ) : null}
                 <Button

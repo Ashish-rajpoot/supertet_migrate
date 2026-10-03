@@ -555,6 +555,14 @@ export const STRINGS = {
   "improve.pickSubject": { hi: "विषय चुनें", en: "Pick a subject" },
   "improve.anySubject": { hi: "कोई भी विषय", en: "Any subject" },
   "improve.anyTopic": { hi: "कोई भी टॉपिक", en: "Any topic" },
+  "improve.topicOptional": {
+    hi: "टॉपिक (वैकल्पिक)",
+    en: "Topic (optional)",
+  },
+  "improve.topicHint": {
+    hi: "सिर्फ़ विषय चुनना भी काफ़ी है - फिर उस विषय के सभी गलत प्रश्न आ जाएँगे। टॉपिक चुनने पर सूची सिर्फ़ उसी तक सीमित रहेगी।",
+    en: "Choosing just a subject is enough - every wrong question in that subject is then listed. Pick a topic to narrow it further.",
+  },
   "improve.source.device": { hi: "इस डिवाइस के परिणाम", en: "This device" },
   "improve.source.cloud": { hi: "मेरे क्लाउड परिणाम", en: "My cloud results" },
   "improve.totals": {

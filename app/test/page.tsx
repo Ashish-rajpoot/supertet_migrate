@@ -144,10 +144,22 @@ function TestInner() {
         return;
       }
       saveRun(null);
-      const pre = params.get("subject");
+      const pre = params.get("subject") || "";
+      const preTopic = params.get("topic") || "";
       if (pre) setSubjects([pre]);
-      const weak = params.get("weak");
-      if (weak) {
+      if (preTopic) setTopics([preTopic]);
+
+      // A deep link can START a run outright, so nobody has to pick the
+      // subject / count / timer again by hand - that is what the Improve
+      // page links to. `weak=1` drills the stashed mistake ids; `start=1`
+      // runs the chosen subject (and topic, when given) straight away.
+      const numParam = (key: string, fallback: number, max: number) => {
+        const n = parseInt(params.get(key) || "", 10);
+        return Number.isFinite(n) ? Math.min(Math.max(1, n), max) : fallback;
+      };
+      const scope = pre ? pre + (preTopic ? " / " + preTopic : "") : "Weak answers";
+
+      if (params.get("weak") === "1") {
         try {
           const ids: string[] = JSON.parse(sessionStorage.getItem("stp.weakIds") || "[]");
           if (ids.length) {
@@ -160,15 +172,36 @@ function TestInner() {
                 count: Math.min(pool.length, 30),
                 minutes: 0,
                 mode: "practice",
-                label: "Weak topics revision",
+                label: scope + " revision",
                 negative: false,
                 showExpl: true,
                 shufO: true,
               });
+              return;
             }
           }
         } catch {
           /* ignore */
+        }
+      }
+
+      if (params.get("start") === "1") {
+        const pool = all.filter(
+          (q) => (!pre || q.subject === pre) && (!preTopic || q.topic === preTopic)
+        );
+        if (pool.length) {
+          const mode = params.get("mode") === "practice" ? "practice" : "test";
+          begin({
+            bank: all,
+            pool,
+            count: Math.min(numParam("count", 20, 200), pool.length),
+            minutes: numParam("minutes", 20, 240),
+            mode,
+            label: pre || "Test",
+            negative: mode === "test",
+            showExpl: mode === "practice",
+            shufO: true,
+          });
         }
       }
     })();
